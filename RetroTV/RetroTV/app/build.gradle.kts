@@ -72,4 +72,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-process:2.8.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
+    // QR codes for "add games from your phone" (pure Java, no other dependencies)
+    implementation("com.google.zxing:core:3.5.3")
 }

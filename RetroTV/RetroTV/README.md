@@ -2,6 +2,9 @@
 
 A controller-friendly retro game emulator for Android TV / Google TV.
 
+- Console-style home screen: cover art, "Continue playing", Favourites, a row per console, your PC's games
+- Cover art downloaded automatically from the free libretro thumbnail library (designed covers when there's no match)
+- Settings screen, and a QR code for sending games from your phone
 - Bluetooth controllers (Xbox, PlayStation, generic), up to 4 players
 - Send games to the TV from your phone or PC over Wi-Fi, or load them from a USB drive
 - Save states, in-game saves kept automatically, pause menu (Select + Start)
@@ -42,8 +45,12 @@ Moonlight engine), so there's no second app on the TV.
    `http://192.168.1.20:8080/pc`.
 2. Open that address in your PC's browser and download **RetroTV PC Setup**. Double-click it.
    (If Windows says "Windows protected your PC": *More info* > *Run anyway*, then *Yes*.)
-3. The setup installs Sunshine and the controller driver, finds your emulators and adds each one as a tile.
-4. On the TV, select your PC. Type the 4-digit code from the TV into the setup window. Done.
+3. That's it. The setup installs Sunshine and the controller driver, adds a tile for each emulator it
+   finds, and then links the TV by itself - no code to type. (The downloaded file carries a one-time
+   pass for your TV, so it can hand the TV the Sunshine login.)
+
+Linking again later (e.g. after "Link a different PC") is automatic too, because the TV keeps the login.
+Installed Sunshine yourself? Enter its web login on the TV's `/pc` page and the TV links automatically.
 
 Your PC's consoles then appear at the top of the RetroTV library, marked "via PC". Select one to start streaming.
 
@@ -61,7 +68,7 @@ The setup file is also in this project at `app/src/main/assets/RetroTV-PC-Setup.
 1. Make a free GitHub account and create a new **public** repository called `RetroTV`.
 2. On the repo page, choose **Add file > Upload files** and drag in everything from this folder
    (including the hidden `.github` folder - if your file explorer hides it, use GitHub Desktop instead).
-3. Commit. Open the **Actions** tab and wait for "Build APK" to go green. The first build takes about
+3. Commit. Open the **Actions** tab and wait for "Build RetroTV" to go green. The first build takes about
    10-15 minutes because it also compiles the streaming engine; later builds are faster.
 4. Your APK is now at:
    `https://github.com/YOUR-NAME/RetroTV/releases/latest/download/RetroTV.apk`
@@ -92,6 +99,13 @@ pair button on top until the Xbox logo flashes quickly. RetroTV's home screen sh
 - Disc games: keep `.cue` and `.bin` files together, or convert to a single `.chd`. Don't zip them.
 
 Use games you own. RetroTV doesn't come with any.
+
+## Home screen
+
+- **Left / right** moves along a row, **up / down** between rows. The top shows the selected game.
+- **A / OK** plays. **Y** (or hold OK, or the remote's menu button) opens options: favourite,
+  remove from Continue playing, delete the game from the TV.
+- Top bar: **Games**, **PC**, **Settings**, then **+** (add games via QR code) and the TV check.
 
 ## Controls
 

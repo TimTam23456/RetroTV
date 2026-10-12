@@ -64,12 +64,30 @@ object Library {
         }
     }
 
-    private fun prettyTitle(f: File): String =
-        f.nameWithoutExtension
-            .replace('_', ' ')
-            .replace(Regex("\\s*\\[[^\\]]*\\]"), "")
+    /** Only games sent to the TV (not ones on a USB drive) can be deleted from RetroTV. */
+    fun isDeletable(ctx: Context, game: Game): Boolean =
+        safeCanonical(game.file).startsWith(safeCanonical(gamesDir(ctx)) + File.separator)
+
+    fun delete(ctx: Context, game: Game) {
+        if (!isDeletable(ctx, game)) return
+        val f = game.file
+        // Multi-file discs: also remove the track files that share the name (Game.cue + Game (Track 1).bin ...).
+        if (f.extension.lowercase() in setOf("cue", "gdi", "m3u", "ccd", "toc")) {
+            f.parentFile?.listFiles()?.filter { it != f && it.name.startsWith(f.nameWithoutExtension) }?.forEach { it.delete() }
+        }
+        f.delete()
+    }
+
+    /** "Super_Mario_World (USA) [!].sfc" -> "Super Mario World". */
+    private fun prettyTitle(f: File): String {
+        val base = f.nameWithoutExtension.replace('_', ' ')
+        val clean = base
+            .replace(Regex("""\s*\[[^\]]*\]"""), "")
+            .replace(Regex("""\s*\([^)]*\)"""), "")
+            .replace(Regex("""\s+"""), " ")
             .trim()
-            .ifEmpty { f.name }
+        return clean.ifEmpty { base.trim() }.ifEmpty { f.name }
+    }
 
     private fun safeCanonical(f: File): String = try {
         f.canonicalPath

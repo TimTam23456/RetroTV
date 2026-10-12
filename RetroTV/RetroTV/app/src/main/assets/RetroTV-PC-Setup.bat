@@ -43,6 +43,10 @@ $Downloads = @{
 }
 
 $Api = 'https://localhost:47990'
+# Filled in by the TV when this file is downloaded from it, so setup can link the TV by itself.
+$TvAddress = '__RETROTV_TV__'
+$TvToken = '__RETROTV_TOKEN__'
+$TvKnown = ($TvAddress -like 'http*') -and ($TvToken -match '^[0-9a-f]{32}$')
 $DataDir = Join-Path $env:ProgramData 'RetroTV'
 $LoginFile = Join-Path $DataDir 'sunshine-login.json'
 $Work = Join-Path $env:TEMP 'RetroTV-Setup'
@@ -342,13 +346,34 @@ try {
 
     # ---------------------------------------------------------------- 5. Link the TV
     Step 5 'Linking your TV'
-    $ip = Get-LanAddress
-    Say ''
-    Say '      On the TV: open RetroTV > "Play newer consoles from PC" > select this PC.' White
-    if ($ip) { Say "      (If the TV doesn't list it, choose 'Enter PC address yourself' and type: $ip)" Gray }
-    Say '      The TV then shows a 4-digit code.' White
+    $linked = $false
+    if ($TvKnown) {
+        Say "      Linking the TV at $TvAddress (nothing to type) ..."
+        try {
+            $payload = @{ token = $TvToken; user = $script:Login.user; pass = $script:Login.pass } | ConvertTo-Json -Compress
+            Invoke-RestMethod -Uri "$TvAddress/pc/link" -Method POST -Body $payload -ContentType 'application/json' -TimeoutSec 15 | Out-Null
+            $deadline = (Get-Date).AddSeconds(90)
+            while ((Get-Date) -lt $deadline) {
+                Start-Sleep -Seconds 2
+                $st = Invoke-RestMethod -Uri "$TvAddress/pc/link-status" -TimeoutSec 10
+                if ($st.state -eq 'linked') { $linked = $true; Good ("Linked! The TV now shows this PC's games" + $(if ($st.pc) { " ($($st.pc))" } else { '' })); break }
+                if ($st.state -eq 'failed') { Warn "The TV couldn't link automatically: $($st.message)"; break }
+            }
+            if (-not $linked -and $st.state -ne 'failed') { Warn 'The TV took too long to answer.' }
+        } catch {
+            Warn "Couldn't reach the TV at $TvAddress. Is RetroTV open on the TV?"
+        }
+    }
 
-    while ($true) {
+    $ip = Get-LanAddress
+    if (-not $linked) {
+        Say ''
+        Say '      Link by code instead: on the TV open RetroTV > "Play newer consoles from PC" > select this PC.' White
+        if ($ip) { Say "      (If the TV doesn't list it, choose 'Enter PC address yourself' and type: $ip)" Gray }
+        Say '      The TV then shows a 4-digit code.' White
+    }
+
+    while (-not $linked) {
         Say ''
         $pin = Read-Host '      Type the code from the TV (or just press Enter to finish)'
         $pin = "$pin".Trim()

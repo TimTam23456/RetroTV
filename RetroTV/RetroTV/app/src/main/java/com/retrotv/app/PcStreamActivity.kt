@@ -51,7 +51,7 @@ class PcStreamActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val root = FrameLayout(this).apply { setBackgroundColor(Palette.bg) }
+        val root = FrameLayout(this).apply { background = Scrims.screen() }
         val columns = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(48), dp(32), dp(48), dp(24))
@@ -82,12 +82,35 @@ class PcStreamActivity : AppCompatActivity() {
                 UploadHub.address.collect { updateAddressLine(it) }
             }
         }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                AutoLink.state.collect { st ->
+                    if (st.linked && overlay.visibility != View.VISIBLE) {
+                        val linked = PcStore.get(this@PcStreamActivity)
+                        if (linked != null && linked.uuid != pc?.uuid) {
+                            pc = linked
+                            finder?.stop()
+                            finder = null
+                            Toast.makeText(this@PcStreamActivity, st.message, Toast.LENGTH_LONG).show()
+                            showLinked()
+                        }
+                    } else if (st.working && pc == null) {
+                        searchStatus?.text = "Your PC is linking itself now..."
+                    }
+                }
+            }
+        }
     }
 
     override fun onStart() {
         super.onStart()
         pc = PcStore.get(this)
         if (pc == null) showFinder() else showLinked()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        showStreamProblemIfAny(this)
     }
 
     override fun onStop() {
@@ -121,10 +144,9 @@ class PcStreamActivity : AppCompatActivity() {
         val step1 = stepCard(leftCol, 1, "ON YOUR PC", "Run RetroTV PC Setup", "")
         pcAddressLine = step1
         updateAddressLine(UploadHub.address.value)
-        stepCard(leftCol, 2, "ON THE TV", "Choose your PC",
-            "When setup finishes, your PC appears on the right. Select it.")
-        stepCard(leftCol, 3, "ON YOUR PC", "Type the code",
-            "The TV shows a 4-digit code. Type it into the setup window on the PC. That's it.")
+        stepCard(leftCol, 2, "THAT'S IT", "The TV links itself",
+            "When setup finishes, this screen switches to your PC's games by itself. " +
+                "Already set up? Just select your PC on the right.")
         leftCol.addView(button("Back to games") { finish() }, wrap().apply { topMargin = dp(10) })
 
         rightCol.addView(text("PCs on your network", Palette.text, 20f).apply {
@@ -213,9 +235,15 @@ class PcStreamActivity : AppCompatActivity() {
             try {
                 val probe = withContext(Dispatchers.IO) { PcLink.probe(this@PcStreamActivity, address, port) }
                 if (gen != pairGeneration) return@launch
-                showPairingPanel(probe.name, pin,
-                    "Waiting for you to type the code on the PC...")
-                val saved = withContext(Dispatchers.IO) { PcLink.pair(this@PcStreamActivity, address, port, pin) }
+                val login = SunshineLogins.get(this@PcStreamActivity, address)
+                val saved = if (login != null) {
+                    // RetroTV PC Setup gave the TV the Sunshine login: link with no code.
+                    showAutoPanel(probe.name)
+                    withContext(Dispatchers.IO) { AutoLink.link(this@PcStreamActivity, address, port, login) }
+                } else {
+                    showPairingPanel(probe.name, pin, "Waiting for you to type the code on the PC...")
+                    withContext(Dispatchers.IO) { PcLink.pair(this@PcStreamActivity, address, port, pin) }
+                }
                 if (gen != pairGeneration) return@launch
                 hideOverlay()
                 pc = saved
@@ -268,6 +296,19 @@ class PcStreamActivity : AppCompatActivity() {
         val cancel = button("Cancel") { cancelPairing() }
         panel.addView(cancel, matchWidth())
         overlay.addView(panel, FrameLayout.LayoutParams(dp(500), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        overlay.visibility = View.VISIBLE
+        cancel.requestFocus()
+    }
+
+    private fun showAutoPanel(name: String) {
+        overlay.removeAllViews()
+        val panel = panel()
+        panel.addView(text("Linking to $name", Palette.text, 22f).apply { setTypeface(typeface, Typeface.BOLD) })
+        panel.addView(text("Linking automatically - nothing to type. This takes a few seconds.", Palette.muted, 15f)
+            .apply { setPadding(0, dp(8), 0, dp(16)) })
+        val cancel = button("Cancel") { cancelPairing() }
+        panel.addView(cancel, matchWidth())
+        overlay.addView(panel, FrameLayout.LayoutParams(dp(480), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         overlay.visibility = View.VISIBLE
         cancel.requestFocus()
     }
@@ -362,6 +403,7 @@ class PcStreamActivity : AppCompatActivity() {
         if (online == false) {
             Toast.makeText(this, "Your PC looks offline. Trying anyway...", Toast.LENGTH_SHORT).show()
         }
+        StreamLog.markStarted(this, "${app.name} on ${p.name}")
         startActivity(PcLink.streamIntent(this, p, app))
     }
 

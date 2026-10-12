@@ -27,7 +27,7 @@ class TvCheckActivity : AppCompatActivity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(Palette.bg)
+            background = Scrims.screen()
             setPadding(dp(48), dp(32), dp(48), dp(24))
         }
 

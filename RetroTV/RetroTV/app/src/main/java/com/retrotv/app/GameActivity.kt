@@ -38,6 +38,7 @@ class GameActivity : AppCompatActivity() {
 
     private lateinit var root: FrameLayout
     private lateinit var status: TextView
+    private lateinit var loading: android.widget.LinearLayout
     private lateinit var system: GameSystem
     private lateinit var gameFile: File
     private lateinit var gameTitle: String
@@ -87,13 +88,41 @@ class GameActivity : AppCompatActivity() {
         gameTitle = intent.getStringExtra(EXTRA_TITLE) ?: gameFile.nameWithoutExtension
 
         root = FrameLayout(this).apply { setBackgroundColor(android.graphics.Color.BLACK) }
-        status = TextView(this).apply {
-            textSize = 20f
+        // Loading screen: the game's cover and title while the emulator starts.
+        loading = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = Scrims.screen()
+        }
+        val cover = android.widget.ImageView(this).apply {
+            scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+            clipToOutline = true
+            outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: android.graphics.Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, dp(16).toFloat())
+                }
+            }
+            elevation = dp(16).toFloat()
+        }
+        Covers.bindGame(cover, Game(gameFile, system, gameTitle))
+        loading.addView(cover, android.widget.LinearLayout.LayoutParams(dp(200), dp(200)))
+        loading.addView(TextView(this).apply {
+            text = gameTitle
+            textSize = 26f
+            setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD))
             setTextColor(Palette.text)
             gravity = Gravity.CENTER
-            text = "Loading $gameTitle..."
+            setPadding(dp(24), dp(22), dp(24), 0)
+        })
+        status = TextView(this).apply {
+            textSize = 16f
+            setTextColor(Palette.muted)
+            gravity = Gravity.CENTER
+            text = "Starting ${system.name}..."
+            setPadding(dp(48), dp(8), dp(48), 0)
         }
-        root.addView(status, FrameLayout.LayoutParams(
+        loading.addView(status)
+        root.addView(loading, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         banner = TextView(this).apply {
             textSize = 15f
@@ -115,7 +144,7 @@ class GameActivity : AppCompatActivity() {
                 val core = CoreManager.ensureCore(this@GameActivity, system) { msg ->
                     runOnUiThread { status.text = msg }
                 }
-                status.text = "Loading $gameTitle..."
+                status.text = "Loading..."
                 val playable = withContext(Dispatchers.IO) { prepareGameFile() }
                 startEmulator(core, playable)
             } catch (e: Exception) {
@@ -159,8 +188,8 @@ class GameActivity : AppCompatActivity() {
             view.getGLRetroEvents().collect { event ->
                 if (event is GLRetroView.GLRetroEvents.FrameRendered) {
                     frames++
-                    if (status.visibility == View.VISIBLE) {
-                        status.visibility = View.GONE
+                    if (loading.visibility == View.VISIBLE) {
+                        loading.visibility = View.GONE
                         showHint()
                     }
                 }
@@ -235,9 +264,9 @@ class GameActivity : AppCompatActivity() {
     private fun fail(msg: String) {
         if (isFinishing) return
         retroView = null // Back now exits instead of opening the menu
-        status.setBackgroundColor(android.graphics.Color.BLACK)
-        status.bringToFront()
-        status.visibility = View.VISIBLE
+        loading.bringToFront()
+        loading.visibility = View.VISIBLE
+        status.setTextColor(Palette.warn)
         status.text = "$msg\n\nPress Back to return."
     }
 

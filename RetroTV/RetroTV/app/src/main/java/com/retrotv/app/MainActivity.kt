@@ -3,18 +3,25 @@ package com.retrotv.app
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.Outline
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.hardware.input.InputManager
 import android.os.Bundle
+import android.text.TextUtils
 import android.view.Gravity
-import android.view.InputDevice
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
+import android.view.ViewOutlineProvider
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextClock
 import android.widget.TextView
 import android.widget.Toast
-import android.widget.ScrollView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -22,7 +29,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -30,43 +37,71 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * The home screen: a console-style game library.
+ *
+ *  [ backdrop: blurred art of the selected game ]
+ *  RetroTV   Games  PC  Settings              (+) (gauge)  pad  12:30
+ *  SNES · Played yesterday
+ *  Super Mario World                              <- hero (selected item)
+ *  (A) Play   (Y) Options
+ *  Continue playing  [][][][]
+ *  From your PC      [][][]
+ *  SNES              [][][][][]
+ *  ...
+ */
 class MainActivity : AppCompatActivity(), InputManager.InputDeviceListener {
 
-    private lateinit var list: RecyclerView
-    private lateinit var empty: TextView
-    private lateinit var uploadInfo: TextView
-    private lateinit var padInfo: TextView
-    private lateinit var count: TextView
-    private lateinit var tvInfo: TextView
+    // ---- views
+    private lateinit var backdrop: ImageView
+    private lateinit var heroChip: TextView
+    private lateinit var heroMeta: TextView
+    private lateinit var heroTitle: TextView
+    private lateinit var heroNote: TextView
+    private lateinit var heroHints: LinearLayout
+    private lateinit var rowsScroll: ScrollView
+    private lateinit var rowsBox: LinearLayout
+    private lateinit var padIcon: ImageView
+    private lateinit var padText: TextView
+
+    // ---- data
+    private var games: List<Game> = emptyList()
+    private var scanned = false
     private var tvChecked = false
-    private val adapter = GameAdapter(
-        onClick = { openGame(it) },
-        ratingFor = { sys -> if (tvChecked) DeviceCheck.verdict(this, sys) else null },
-        onPcClick = { pc, app -> openPcGame(pc, app) },
-    )
     private var pcOnline: Boolean? = null
-    private var pcJob: Job? = null
-    private var localCount = 0
     private var scanJob: Job? = null
     private var rescanPending: Job? = null
+    private var pcJob: Job? = null
+    private var backdropJob: Job? = null
+
+    /** Which card had focus (row id + item key), so it can be restored after the rows are rebuilt. */
+    private var focusRow: String? = null
+    private var focusKey: String? = null
+
+    private val askStorage = registerForActivityResult(ActivityResultContracts.RequestPermission()) { rescan() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(buildLayout())
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                UploadHub.status.collect { uploadInfo.text = it }
-            }
-        }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
             != PackageManager.PERMISSION_GRANTED
         ) {
             askStorage.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
         }
-    }
 
-    private val askStorage = registerForActivityResult(ActivityResultContracts.RequestPermission()) { rescan() }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                AutoLink.state.collect { st ->
+                    if (st.linked) {
+                        loadPc()
+                        Toast.makeText(this@MainActivity, st.message, Toast.LENGTH_LONG).show()
+                        AutoLink.reset()
+                    }
+                }
+            }
+        }
+    }
 
     override fun onStart() {
         super.onStart()
@@ -83,147 +118,500 @@ class MainActivity : AppCompatActivity(), InputManager.InputDeviceListener {
         (getSystemService(INPUT_SERVICE) as InputManager).registerInputDeviceListener(this, null)
     }
 
+    private var resumedBefore = false
+
+    override fun onResume() {
+        super.onResume()
+        showStreamProblemIfAny(this)
+        // Back from a game, Settings or the PC screen: refresh "Continue playing", favourites, etc.
+        if (resumedBefore && scanned) render()
+        resumedBefore = true
+    }
+
     override fun onStop() {
         super.onStop()
         (getSystemService(INPUT_SERVICE) as InputManager).unregisterInputDeviceListener(this)
         UploadHub.onUploaded = null
     }
 
-    // ---------- layout ----------
+    // ===================================================================== layout
 
     private fun buildLayout(): View {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(Palette.bg)
-            setPadding(dp(48), dp(32), dp(48), dp(24))
-        }
+        val root = FrameLayout(this).apply { setBackgroundColor(Palette.bg) }
 
-        val side = LinearLayout(this).apply {
+        backdrop = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            alpha = 0f
+        }
+        root.addView(backdrop, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(View(this).apply { background = Scrims.home() },
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(buildTopBar())
+        content.addView(buildHero())
+
+        rowsBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, dp(32), 0)
-        }
-        side.addView(TextView(this).apply {
-            text = "RetroTV"
-            textSize = 34f
-            setTypeface(typeface, Typeface.BOLD)
-            setTextColor(Palette.text)
-        })
-        count = TextView(this).apply {
-            textSize = 15f
-            setTextColor(Palette.muted)
-            setPadding(0, dp(2), 0, dp(20))
-        }
-        side.addView(count)
-
-        side.addView(label("ADD GAMES"))
-        uploadInfo = body()
-        side.addView(uploadInfo)
-        side.addView(body().apply {
-            text = "Or plug in a USB drive, or put games in the TV's Download folder."
-            setPadding(0, dp(8), 0, dp(20))
-        })
-
-        side.addView(label("CONTROLLERS"))
-        padInfo = body().apply { setPadding(0, 0, 0, dp(20)) }
-        side.addView(padInfo)
-
-        side.addView(label("YOUR TV"))
-        tvInfo = body().apply {
-            text = "Checking..."
-            setPadding(0, 0, 0, dp(10))
-        }
-        side.addView(tvInfo)
-        side.addView(sideButton("TV check: what can it play?") {
-            startActivity(Intent(this, TvCheckActivity::class.java))
-        }, sideParams())
-        side.addView(sideButton("Play newer consoles from PC") {
-            startActivity(Intent(this, PcStreamActivity::class.java))
-        }, sideParams())
-        side.addView(sideButton("Rescan games") {
-            rescan()
-            Toast.makeText(this, "Scanning...", Toast.LENGTH_SHORT).show()
-        }, sideParams())
-
-        side.addView(body().apply {
-            text = "In a game: Select + Start (View + Menu on Xbox) or Back opens the menu."
-            textSize = 13f
-            setTextColor(Palette.muted)
-            setPadding(0, dp(14), 0, 0)
-        })
-
-        root.addView(ScrollView(this).apply { addView(side) },
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
-
-        val right = android.widget.FrameLayout(this)
-        list = RecyclerView(this).apply {
-            val glm = GridLayoutManager(context, 3)
-            glm.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
-                override fun getSpanSize(position: Int) = if (this@MainActivity.adapter.isHeader(position)) 3 else 1
-            }
-            layoutManager = glm
-            adapter = this@MainActivity.adapter
+            setPadding(0, dp(4), 0, dp(220)) // room so the last row can scroll up to the top
+            clipChildren = false
             clipToPadding = false
-            setPadding(dp(6), dp(6), dp(6), dp(40))
-            descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
         }
-        empty = TextView(this).apply {
-            textSize = 18f
-            setTextColor(Palette.muted)
-            gravity = Gravity.CENTER
-            text = "No games yet.\n\nSend some from your phone or PC using the address on the left."
-            visibility = View.GONE
+        rowsScroll = ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            isFillViewport = true
+            clipChildren = false
+            addView(rowsBox)
         }
-        right.addView(list)
-        right.addView(empty, android.widget.FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        root.addView(right, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 2.2f))
+        content.addView(rowsScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        root.addView(content)
         return root
     }
 
-    private fun sideButton(t: String, onClick: () -> Unit) = Button(this).apply {
-        text = t
-        isAllCaps = false
-        textSize = 15f
-        gravity = Gravity.CENTER_VERTICAL or Gravity.START
-        setTextColor(Palette.text)
-        background = focusTile()
-        setPadding(dp(16), dp(10), dp(16), dp(10))
-        growOnFocus()
-        setOnClickListener { onClick() }
+    private fun buildTopBar(): View {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(48), dp(22), dp(40), dp(6))
+        }
+        // Logo
+        bar.addView(ImageView(this).apply {
+            setImageDrawable(IconDrawable(Icon.GAMEPAD, Color.WHITE))
+            background = GradientDrawable().apply { cornerRadius = dp(9).toFloat(); setColor(Palette.accent) }
+            setPadding(dp(5), dp(5), dp(5), dp(5))
+        }, LinearLayout.LayoutParams(dp(32), dp(32)))
+        bar.addView(TextView(this).apply {
+            text = "RetroTV"
+            textSize = 20f
+            setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD))
+            setTextColor(Palette.text)
+            setPadding(dp(10), 0, dp(28), 0)
+        })
+        // Tabs
+        bar.addView(Ui.tab(this, "Games", selected = true) { rowsScroll.smoothScrollTo(0, 0); focusFirstCard() })
+        bar.addView(Ui.tab(this, "PC", selected = false) { startActivity(Intent(this, PcStreamActivity::class.java)) })
+        bar.addView(Ui.tab(this, "Settings", selected = false) { startActivity(Intent(this, SettingsActivity::class.java)) })
+        bar.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+        // Quick actions
+        bar.addView(Ui.iconButton(this, Icon.PLUS, "Add games") { AddGames.show(this) })
+        bar.addView(Ui.iconButton(this, Icon.GAUGE, "TV check") { startActivity(Intent(this, TvCheckActivity::class.java)) })
+        // Controller status + clock (not focusable)
+        padIcon = ImageView(this).apply { setImageDrawable(IconDrawable(Icon.GAMEPAD, Palette.muted)) }
+        bar.addView(padIcon, LinearLayout.LayoutParams(dp(24), dp(24)).apply { leftMargin = dp(18) })
+        padText = TextView(this).apply {
+            textSize = 13f
+            setTextColor(Palette.muted)
+            setPadding(dp(5), 0, dp(16), 0)
+        }
+        bar.addView(padText)
+        bar.addView(TextClock(this).apply {
+            format12Hour = "h:mm"
+            format24Hour = "HH:mm"
+            textSize = 18f
+            setTextColor(Palette.text)
+            setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL))
+        })
+        return bar
     }
 
-    private fun sideParams() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        .apply { bottomMargin = dp(8) }
-
-    private fun label(t: String) = TextView(this).apply {
-        text = t
-        textSize = 12f
-        letterSpacing = 0.12f
-        setTypeface(typeface, Typeface.BOLD)
-        setTextColor(Palette.accent)
-        setPadding(0, 0, 0, dp(4))
+    private fun buildHero(): View {
+        val hero = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(48), dp(14), dp(48), dp(10))
+        }
+        val metaRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        heroChip = TextView(this).apply {
+            textSize = 11f
+            letterSpacing = 0.12f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            setPadding(dp(9), dp(3), dp(9), dp(3))
+        }
+        metaRow.addView(heroChip)
+        heroMeta = TextView(this).apply {
+            textSize = 13f
+            setTextColor(Palette.muted)
+            setPadding(dp(10), 0, 0, 0)
+        }
+        metaRow.addView(heroMeta)
+        hero.addView(metaRow)
+        heroTitle = TextView(this).apply {
+            textSize = 36f
+            setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD))
+            setTextColor(Palette.text)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, dp(6), 0, 0)
+            setShadowLayer(12f, 0f, 2f, 0x99000000.toInt())
+        }
+        hero.addView(heroTitle)
+        heroNote = TextView(this).apply {
+            textSize = 14f
+            setTextColor(Palette.muted)
+            maxLines = 2
+            setPadding(0, dp(2), 0, 0)
+        }
+        hero.addView(heroNote)
+        heroHints = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(10), 0, 0)
+        }
+        hero.addView(heroHints)
+        hero.minimumHeight = dp(150)
+        return hero
     }
 
-    private fun body() = TextView(this).apply {
-        textSize = 15f
-        setTextColor(Palette.text)
-        setLineSpacing(0f, 1.2f)
+    // ===================================================================== rows
+
+    /** One horizontal row of cards. */
+    private data class RowData(val id: String, val title: String, val subtitle: String?, val items: List<Card>)
+
+    sealed class Card {
+        abstract val key: String
+        data class GameCard(val game: Game) : Card() { override val key get() = GameStats.keyFor(game) }
+        data class PcCard(val pc: SavedPc, val app: PcApp) : Card() { override val key get() = GameStats.keyFor(pc, app) }
+        data class ActionCard(val id: String, val title: String, val text: String, val icon: Icon, val color: Int) : Card() {
+            override val key get() = "action:$id"
+        }
     }
 
-    // ---------- games ----------
+    private fun buildRows(): List<RowData> {
+        val pc = PcStore.get(this)
+        val pcCards = pc?.apps?.map { Card.PcCard(pc, it) }.orEmpty()
+        val gameCards = games.map { Card.GameCard(it) }
+        val everything = gameCards + pcCards
+        val rows = mutableListOf<RowData>()
+
+        val recent = everything.filter { GameStats.lastPlayed(this, it.key) > 0 }
+            .sortedByDescending { GameStats.lastPlayed(this, it.key) }.take(12)
+        if (recent.isNotEmpty()) rows += RowData("recent", "Continue playing", null, recent)
+
+        val favs = everything.filter { GameStats.isFavourite(this, it.key) }
+        if (favs.isNotEmpty()) rows += RowData("favs", "Favourites", null, favs)
+
+        if (pc != null && pcCards.isNotEmpty()) {
+            val status = when (pcOnline) {
+                true -> "● Online"
+                false -> "● Offline - select a game to wake it"
+                null -> "Checking..."
+            }
+            rows += RowData("pc", "From your PC · ${pc.name}", status, pcCards)
+        }
+
+        games.groupBy { it.system }.toSortedMap(compareBy { Systems.all.indexOf(it) }).forEach { (sys, list) ->
+            val verdict = if (tvChecked) DeviceCheck.verdict(this, sys) else null
+            val sub = when {
+                verdict != null && !verdict.playable -> if (sys.heavy) "Too slow on this TV - stream it from your PC" else "May be too slow on this TV"
+                verdict?.rating == DeviceCheck.Rating.OK -> "Some games may slow down"
+                else -> "${list.size} game" + if (list.size == 1) "" else "s"
+            }
+            rows += RowData("sys:${sys.id}", sys.name, sub, list.map { Card.GameCard(it) })
+        }
+
+        val tools = listOf(
+            Card.ActionCard("add", "Add games", "Scan the code with your phone to send games to the TV, or plug in a USB drive.", Icon.QR, 0xFF7C5CFF.toInt()),
+            Card.ActionCard("pc", if (pc == null) "Play from your PC" else "PC settings",
+                if (pc == null) "Stream PS2, PS3, GameCube, Switch and more from your Windows PC." else "Stream quality, wake your PC, or link a different one.",
+                Icon.PC, 0xFF1E3A8A.toInt()),
+            Card.ActionCard("tvcheck", "TV check", "See which consoles this TV can run smoothly.", Icon.GAUGE, 0xFF0E7C86.toInt()),
+            Card.ActionCard("settings", "Settings", "Controllers, cover art, PC streaming and more.", Icon.SETTINGS, 0xFF374151.toInt()),
+        )
+        if (games.isEmpty() && pcCards.isEmpty()) {
+            rows.add(0, RowData("tools", "Get started", "Add your first games", tools))
+        } else {
+            rows += RowData("tools", "More", null, tools)
+        }
+        return rows
+    }
+
+    private fun render() {
+        val rows = buildRows()
+        rowsBox.removeAllViews()
+        var restoreTarget: Pair<RecyclerView, Int>? = null
+        for (row in rows) {
+            val (view, rv) = buildRow(row)
+            rowsBox.addView(view)
+            if (restoreTarget == null && row.id == focusRow) {
+                val idx = row.items.indexOfFirst { it.key == focusKey }
+                if (idx >= 0) restoreTarget = rv to idx
+            }
+        }
+        if (restoreTarget == null && focusKey != null) {
+            // The card moved to another row (e.g. into "Continue playing"); find it anywhere.
+            for (i in 0 until rowsBox.childCount) {
+                val rv = (rowsBox.getChildAt(i) as ViewGroup).getChildAt(1) as RecyclerView
+                val idx = (rv.adapter as CardAdapter).items.indexOfFirst { it.key == focusKey }
+                if (idx >= 0) { restoreTarget = rv to idx; break }
+            }
+        }
+        val target = restoreTarget
+        if (target != null) {
+            target.first.scrollToPosition(target.second)
+            target.first.post { target.first.findViewHolderForAdapterPosition(target.second)?.itemView?.requestFocus() }
+        } else {
+            focusFirstCard()
+        }
+    }
+
+    private fun focusFirstCard() {
+        rowsBox.post {
+            val first = (rowsBox.getChildAt(0) as? ViewGroup)?.getChildAt(1) as? RecyclerView ?: return@post
+            first.scrollToPosition(0)
+            first.post { first.findViewHolderForAdapterPosition(0)?.itemView?.requestFocus() }
+        }
+    }
+
+    private fun buildRow(row: RowData): Pair<View, RecyclerView> {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            clipChildren = false
+            clipToPadding = false
+            tag = row.id
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.BOTTOM
+            setPadding(dp(50), dp(14), dp(48), dp(2))
+        }
+        header.addView(TextView(this).apply {
+            text = row.title
+            textSize = 17f
+            setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD))
+            setTextColor(Palette.text)
+        })
+        if (row.subtitle != null) {
+            header.addView(TextView(this).apply {
+                text = row.subtitle
+                textSize = 13f
+                setTextColor(when {
+                    row.subtitle.startsWith("● Online") -> Palette.good
+                    row.subtitle.startsWith("● Offline") || row.subtitle.contains("slow") -> Palette.warn
+                    else -> Palette.muted
+                })
+                setPadding(dp(12), 0, 0, dp(2))
+            })
+        }
+        box.addView(header)
+
+        val rv = RecyclerView(this).apply {
+            layoutManager = RowLayoutManager(this@MainActivity)
+            adapter = CardAdapter(row.id, row.items)
+            clipToPadding = false
+            clipChildren = false
+            setPadding(dp(44), dp(12), dp(44), dp(14))
+            itemAnimator = null
+            overScrollMode = View.OVER_SCROLL_NEVER
+            isFocusable = false
+            descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+        }
+        box.addView(rv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(Ui.CARD + 26)))
+        return box to rv
+    }
+
+    /** Keeps the remote from jumping off the end of a row. */
+    private class RowLayoutManager(ctx: android.content.Context) : LinearLayoutManager(ctx, HORIZONTAL, false) {
+        override fun onInterceptFocusSearch(focused: View, direction: Int): View? {
+            val pos = try { getPosition(focused) } catch (_: Exception) { return null }
+            if (direction == View.FOCUS_RIGHT && pos == itemCount - 1) return focused
+            if (direction == View.FOCUS_LEFT && pos == 0) return focused
+            return null
+        }
+    }
+
+    private inner class CardAdapter(val rowId: String, val items: List<Card>) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+        override fun getItemCount() = items.size
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder =
+            object : RecyclerView.ViewHolder(CardView(this@MainActivity)) {}
+
+        override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+            val card = items[position]
+            val v = holder.itemView as CardView
+            v.bind(card, GameStats.isFavourite(this@MainActivity, card.key))
+            v.setOnClickListener { open(card) }
+            v.setOnLongClickListener { showOptions(card); true }
+            v.onFocus = { has ->
+                if (has) {
+                    focusRow = rowId
+                    focusKey = card.key
+                    showHero(card)
+                    scrollRowIntoPlace(v)
+                }
+            }
+        }
+    }
+
+    /** Keeps the focused row near the top, under the hero, like a console home screen. */
+    private fun scrollRowIntoPlace(card: View) {
+        var row: View = card
+        while (row.parent != null && row.parent !== rowsBox) row = row.parent as View
+        if (row.parent !== rowsBox) return
+        rowsScroll.smoothScrollTo(0, maxOf(0, row.top - dp(4)))
+    }
+
+    // ===================================================================== hero + backdrop
+
+    private fun showHero(card: Card) {
+        heroHints.removeAllViews()
+        when (card) {
+            is Card.GameCard -> {
+                val g = card.game
+                setChip(g.system.short, g.system.color)
+                heroMeta.text = GameStats.playedText(this, card.key) ?: "Not played yet"
+                heroTitle.text = g.title
+                val verdict = if (tvChecked) DeviceCheck.verdict(this, g.system) else null
+                heroNote.setTextColor(if (verdict != null && !verdict.playable) Palette.warn else Palette.muted)
+                heroNote.text = when {
+                    verdict != null && !verdict.playable -> "${verdict.rating.label}. ${verdict.reason}"
+                    verdict?.rating == DeviceCheck.Rating.OK -> "Playable on this TV - demanding games may slow down."
+                    else -> g.system.name + if (Library.isDeletable(this, g)) " \u00B7 on this TV" else " \u00B7 on USB / storage"
+                }
+                hint("A", "Play"); hint("Y", "Options")
+                loadBackdrop(g)
+            }
+            is Card.PcCard -> {
+                setChip("VIA PC", PcArt.colorFor(card.app.name))
+                heroMeta.text = (GameStats.playedText(this, card.key) ?: "Streams from ${card.pc.name}") +
+                    when (pcOnline) { false -> "  ·  PC offline"; else -> "" }
+                heroTitle.text = card.app.name
+                heroNote.setTextColor(Palette.muted)
+                heroNote.text = "${PcGames.describe(card.app.name)} on ${card.pc.name}. Hold View + Menu + LB + RB to stop streaming."
+                hint("A", "Stream"); hint("Y", "Options")
+                clearBackdrop()
+            }
+            is Card.ActionCard -> {
+                setChip("RETROTV", Palette.accent)
+                heroMeta.text = ""
+                heroTitle.text = card.title
+                heroNote.setTextColor(Palette.muted)
+                heroNote.text = card.text
+                hint("A", "Open")
+                clearBackdrop()
+            }
+        }
+    }
+
+    private fun setChip(text: String, color: Int) {
+        heroChip.text = text
+        heroChip.background = GradientDrawable().apply { cornerRadius = dp(6).toFloat(); setColor(color) }
+    }
+
+    private fun hint(button: String, label: String) {
+        heroHints.addView(TextView(this).apply {
+            text = button
+            textSize = 11f
+            gravity = Gravity.CENTER
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Palette.bg)
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Palette.text) }
+        }, LinearLayout.LayoutParams(dp(20), dp(20)))
+        heroHints.addView(TextView(this).apply {
+            text = label
+            textSize = 13f
+            setTextColor(Palette.text)
+            setPadding(dp(7), 0, dp(20), 0)
+        })
+    }
+
+    private fun loadBackdrop(game: Game) {
+        backdropJob?.cancel()
+        backdropJob = lifecycleScope.launch {
+            delay(180) // don't load art for every card the remote flies past
+            val bmp = Covers.backdrop(applicationContext, game)
+            if (bmp == null) { clearBackdrop(); return@launch }
+            backdrop.animate().cancel()
+            backdrop.setImageBitmap(bmp)
+            backdrop.animate().alpha(0.55f).setDuration(350).start()
+        }
+    }
+
+    private fun clearBackdrop() {
+        backdropJob?.cancel()
+        backdrop.animate().cancel()
+        backdrop.animate().alpha(0f).setDuration(250).start()
+    }
+
+    // ===================================================================== actions
+
+    private fun open(card: Card) {
+        when (card) {
+            is Card.GameCard -> openGame(card.game)
+            is Card.PcCard -> openPcGame(card.pc, card.app)
+            is Card.ActionCard -> when (card.id) {
+                "add" -> AddGames.show(this)
+                "pc" -> startActivity(Intent(this, PcStreamActivity::class.java))
+                "tvcheck" -> startActivity(Intent(this, TvCheckActivity::class.java))
+                "settings" -> startActivity(Intent(this, SettingsActivity::class.java))
+            }
+        }
+    }
+
+    private fun showOptions(card: Card) {
+        if (card is Card.ActionCard) return
+        val fav = GameStats.isFavourite(this, card.key)
+        val options = mutableListOf<Pair<String, () -> Unit>>()
+        options += (if (card is Card.PcCard) "Stream" else "Play") to { open(card) }
+        options += (if (fav) "Remove from Favourites" else "Add to Favourites") to {
+            GameStats.setFavourite(this, card.key, !fav)
+            render()
+        }
+        if (GameStats.lastPlayed(this, card.key) > 0) {
+            options += "Remove from Continue playing" to {
+                GameStats.forget(this, card.key)
+                if (fav) GameStats.setFavourite(this, card.key, true)
+                render()
+            }
+        }
+        if (card is Card.GameCard && Library.isDeletable(this, card.game)) {
+            options += "Delete game from TV" to { confirmDelete(card.game) }
+        }
+        val title = when (card) {
+            is Card.GameCard -> card.game.title
+            is Card.PcCard -> card.app.name
+            else -> ""
+        }
+        Ui.actionSheet(this, title, options)
+    }
+
+    private fun confirmDelete(game: Game) {
+        AlertDialog.Builder(this)
+            .setTitle("Delete ${game.title}?")
+            .setMessage("This removes the game file from the TV. Save files are kept.")
+            .setPositiveButton("Delete") { _, _ ->
+                Library.delete(this, game)
+                GameStats.forget(this, GameStats.keyFor(game))
+                rescan()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BUTTON_Y || keyCode == KeyEvent.KEYCODE_MENU) {
+            val v = currentFocus
+            if (v is CardView) {
+                v.card?.let { showOptions(it) }
+                return true
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    // ===================================================================== games
 
     private fun rescan() {
         scanJob?.cancel()
         scanJob = lifecycleScope.launch {
-            val games = withContext(Dispatchers.IO) { Library.scan(this@MainActivity) }
-            adapter.submit(games)
-            localCount = games.size
-            updateCount()
-            if (adapter.getItemCount() > 0 && currentFocus == null) list.post { list.getChildAt(1)?.requestFocus() }
+            games = withContext(Dispatchers.IO) { Library.scan(this@MainActivity) }
+            scanned = true
+            render()
         }
     }
 
-    /** Called from the upload server thread; waits for a pause so a batch upload only rescans once. */
     private fun rescanSoon() {
         lifecycleScope.launch {
             rescanPending?.cancel()
@@ -239,13 +627,9 @@ class MainActivity : AppCompatActivity(), InputManager.InputDeviceListener {
         if (verdict != null && !verdict.playable) {
             AlertDialog.Builder(this)
                 .setTitle("${game.system.name} may not run on this TV")
-                .setMessage(verdict.reason + if (game.system.heavy) {
-                    "\n\nFor smooth play, stream it from your PC instead."
-                } else "")
+                .setMessage(verdict.reason + if (game.system.heavy) "\n\nFor smooth play, stream it from your PC instead." else "")
                 .setPositiveButton("Try anyway") { _, _ -> launchGame(game) }
-                .setNeutralButton("Play from PC") { _, _ ->
-                    startActivity(Intent(this, PcStreamActivity::class.java))
-                }
+                .setNeutralButton("Play from PC") { _, _ -> startActivity(Intent(this, PcStreamActivity::class.java)) }
                 .setNegativeButton("Cancel", null)
                 .show()
             return
@@ -253,48 +637,37 @@ class MainActivity : AppCompatActivity(), InputManager.InputDeviceListener {
         launchGame(game)
     }
 
-    // ---------- PC games ----------
+    private fun launchGame(game: Game) {
+        GameStats.markPlayed(this, GameStats.keyFor(game))
+        startActivity(Intent(this, GameActivity::class.java)
+            .putExtra(GameActivity.EXTRA_PATH, game.file.absolutePath)
+            .putExtra(GameActivity.EXTRA_SYSTEM, game.system.id)
+            .putExtra(GameActivity.EXTRA_TITLE, game.title))
+    }
+
+    // ===================================================================== PC
 
     private fun loadPc() {
-        val pc = PcStore.get(this)
-        adapter.setPc(pc, pcOnline)
-        updateCount()
-        if (pc == null) return
+        val pc = PcStore.get(this) ?: run { if (scanned) render(); return }
+        if (scanned) render()
         pcJob?.cancel()
         pcJob = lifecycleScope.launch {
             try {
                 val updated = withContext(Dispatchers.IO) { PcLink.refresh(this@MainActivity, pc) }
                 PcStore.save(this@MainActivity, updated)
                 pcOnline = true
-                adapter.setPc(updated, true)
             } catch (_: Exception) {
                 pcOnline = false
-                adapter.setPc(pc, false)
             }
-            updateCount()
+            if (scanned) render()
         }
-    }
-
-    private fun updateCount() {
-        val pcGames = PcStore.get(this)?.apps?.size ?: 0
-        val local = when (localCount) {
-            0 -> "No games on the TV yet"
-            1 -> "1 game"
-            else -> "$localCount games"
-        }
-        count.text = if (pcGames > 0) "$local \u00B7 $pcGames on your PC" else local
-        empty.visibility = if (adapter.getItemCount() == 0) View.VISIBLE else View.GONE
     }
 
     private fun openPcGame(pc: SavedPc, app: PcApp) {
         if (pcOnline == false) {
             lifecycleScope.launch {
                 val sent = withContext(Dispatchers.IO) {
-                    try {
-                        PcLink.wake(pc); true
-                    } catch (_: Exception) {
-                        false
-                    }
+                    try { PcLink.wake(pc); true } catch (_: Exception) { false }
                 }
                 Toast.makeText(this@MainActivity,
                     if (sent) "${pc.name} looks off or asleep. Sent a wake signal - try again in about 20 seconds."
@@ -304,45 +677,31 @@ class MainActivity : AppCompatActivity(), InputManager.InputDeviceListener {
             }
             return
         }
+        GameStats.markPlayed(this, GameStats.keyFor(pc, app))
+        StreamLog.markStarted(this, "${app.name} on ${pc.name}")
         startActivity(PcLink.streamIntent(this, pc, app))
     }
 
-    private fun launchGame(game: Game) {
-        startActivity(Intent(this, GameActivity::class.java)
-            .putExtra(GameActivity.EXTRA_PATH, game.file.absolutePath)
-            .putExtra(GameActivity.EXTRA_SYSTEM, game.system.id)
-            .putExtra(GameActivity.EXTRA_TITLE, game.title))
-    }
-
-    // ---------- TV check ----------
+    // ===================================================================== TV + controllers
 
     private fun checkTv() {
         lifecycleScope.launch {
-            val info = withContext(Dispatchers.Default) { DeviceCheck.info(applicationContext) }
+            withContext(Dispatchers.Default) { DeviceCheck.info(applicationContext) }
             tvChecked = true
-            tvInfo.text = "${info.chip} \u00B7 ${DeviceCheck.summary(this@MainActivity)}"
-            adapter.refreshHeaders()
+            if (scanned) render()
         }
     }
 
-    // ---------- controllers ----------
-
     private fun updatePads() {
-        val pads = InputDevice.getDeviceIds().toList().mapNotNull { InputDevice.getDevice(it) }
-            .filter { d ->
-                !d.isVirtual &&
-                    (d.sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
-                        d.sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK)
-            }
-            .map { it.name }
-            .distinct()
+        val pads = Controllers.connected()
         if (pads.isEmpty()) {
-            padInfo.setTextColor(Palette.warn)
-            padInfo.text = "No controller found. Pair one in TV Settings > Remotes & Accessories. " +
-                "(Xbox: hold the pair button on top until the logo flashes fast.)"
+            padIcon.setImageDrawable(IconDrawable(Icon.GAMEPAD, Palette.warn))
+            padText.text = "No controller"
+            padText.setTextColor(Palette.warn)
         } else {
-            padInfo.setTextColor(Palette.good)
-            padInfo.text = pads.joinToString("\n") { "✓ $it" }
+            padIcon.setImageDrawable(IconDrawable(Icon.GAMEPAD, Palette.good))
+            padText.text = pads.size.toString()
+            padText.setTextColor(Palette.text)
         }
     }
 
@@ -351,146 +710,73 @@ class MainActivity : AppCompatActivity(), InputManager.InputDeviceListener {
     override fun onInputDeviceChanged(deviceId: Int) = updatePads()
 }
 
-// ---------- list adapter ----------
+/** A game card: square cover with rounded corners that grows and gets a white rim when selected. */
+class CardView(ctx: android.content.Context) : FrameLayout(ctx) {
+    private val image = ImageView(ctx).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+    private val rim = View(ctx)
+    private val badge = TextView(ctx)
+    private val star = ImageView(ctx)
+    var card: MainActivity.Card? = null
+        private set
+    var onFocus: ((Boolean) -> Unit)? = null
 
-class GameAdapter(
-    private val onClick: (Game) -> Unit,
-    private val ratingFor: (GameSystem) -> DeviceCheck.Verdict?,
-    private val onPcClick: (SavedPc, PcApp) -> Unit,
-) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-
-    private sealed class Row {
-        data class Header(val system: GameSystem, val count: Int) : Row()
-        data class Item(val game: Game) : Row()
-        data class PcHeader(val pc: SavedPc, val online: Boolean?) : Row()
-        data class PcItem(val pc: SavedPc, val app: PcApp) : Row()
-    }
-
-    private var rows: List<Row> = emptyList()
-    private var games: List<Game> = emptyList()
-    private var pc: SavedPc? = null
-    private var pcOnline: Boolean? = null
-
-    fun submit(games: List<Game>) {
-        this.games = games
-        rebuild()
-    }
-
-    fun setPc(pc: SavedPc?, online: Boolean?) {
-        this.pc = pc
-        this.pcOnline = online
-        rebuild()
-    }
-
-    private fun rebuild() {
-        val out = mutableListOf<Row>()
-        pc?.takeIf { it.apps.isNotEmpty() }?.let { p ->
-            out += Row.PcHeader(p, pcOnline)
-            p.apps.forEach { out += Row.PcItem(p, it) }
-        }
-        games.groupBy { it.system }.forEach { (sys, gs) ->
-            out += Row.Header(sys, gs.size)
-            gs.forEach { out += Row.Item(it) }
-        }
-        rows = out
-        @Suppress("NotifyDataSetChanged")
-        notifyDataSetChanged()
-    }
-
-    fun refreshHeaders() {
-        rows.forEachIndexed { i, row -> if (row is Row.Header) notifyItemChanged(i) }
-    }
-
-    fun isHeader(position: Int) = rows.getOrNull(position).let { it is Row.Header || it is Row.PcHeader }
-
-    override fun getItemCount() = rows.size
-    override fun getItemViewType(position: Int) = if (isHeader(position)) 0 else 1
-
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
-        val ctx = parent.context
-        val view: View = if (viewType == 0) {
-            TextView(ctx).apply {
-                textSize = 20f
-                setTypeface(typeface, Typeface.BOLD)
-                setTextColor(Palette.text)
-                setPadding(ctx.dp(6), ctx.dp(22), ctx.dp(6), ctx.dp(8))
-                layoutParams = RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            }
-        } else {
-            LinearLayout(ctx).apply {
-                orientation = LinearLayout.VERTICAL
-                isFocusable = true
-                isClickable = true
-                background = ctx.focusTile()
-                setPadding(ctx.dp(16), ctx.dp(14), ctx.dp(16), ctx.dp(14))
-                minimumHeight = ctx.dp(84)
-                growOnFocus()
-                addView(TextView(ctx).apply {
-                    textSize = 16f
-                    setTextColor(Palette.text)
-                    maxLines = 2
-                    ellipsize = android.text.TextUtils.TruncateAt.END
-                })
-                addView(TextView(ctx).apply {
-                    textSize = 12f
-                    setTextColor(Palette.muted)
-                    setPadding(0, ctx.dp(4), 0, 0)
-                    maxLines = 1
-                })
-                layoutParams = RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                    .apply { setMargins(ctx.dp(6), ctx.dp(6), ctx.dp(6), ctx.dp(6)) }
+    init {
+        val size = ctx.dp(Ui.CARD)
+        layoutParams = RecyclerView.LayoutParams(size, size).apply { setMargins(ctx.dp(8), 0, ctx.dp(8), 0) }
+        isFocusable = true
+        isClickable = true
+        clipToOutline = true
+        outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, ctx.dp(12).toFloat())
             }
         }
-        return object : RecyclerView.ViewHolder(view) {}
+        setBackgroundColor(Palette.panel)
+        addView(image, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        badge.apply {
+            textSize = 10f
+            letterSpacing = 0.1f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            setPadding(ctx.dp(6), ctx.dp(2), ctx.dp(6), ctx.dp(2))
+            background = GradientDrawable().apply { cornerRadius = ctx.dp(5).toFloat(); setColor(0xCC000000.toInt()) }
+            visibility = View.GONE
+        }
+        addView(badge, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START)
+            .apply { setMargins(ctx.dp(7), ctx.dp(7), 0, 0) })
+        star.apply {
+            setImageDrawable(IconDrawable(Icon.STAR_FILLED, 0xFFFFD45C.toInt()))
+            visibility = View.GONE
+        }
+        addView(star, LayoutParams(ctx.dp(18), ctx.dp(18), Gravity.TOP or Gravity.END).apply { setMargins(0, ctx.dp(7), ctx.dp(7), 0) })
+        rim.background = GradientDrawable().apply {
+            cornerRadius = ctx.dp(12).toFloat()
+            setStroke(ctx.dp(3), Color.WHITE)
+        }
+        rim.visibility = View.INVISIBLE
+        addView(rim, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+
+        setOnFocusChangeListener { _, has ->
+            rim.visibility = if (has) View.VISIBLE else View.INVISIBLE
+            animate().scaleX(if (has) 1.12f else 1f).scaleY(if (has) 1.12f else 1f)
+                .translationZ(if (has) ctx.dp(12).toFloat() else 0f).setDuration(140).start()
+            onFocus?.invoke(has)
+        }
     }
 
-    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-        when (val row = rows[position]) {
-            is Row.Header -> {
-                val tv = holder.itemView as TextView
-                val v = ratingFor(row.system)
-                val extra = when {
-                    v != null && !v.playable -> "   \u00B7  ${v.rating.label}" + if (row.system.heavy) " - try Play from PC" else ""
-                    v?.rating == DeviceCheck.Rating.OK -> "   \u00B7  Some games may slow down"
-                    row.system.note != null -> "   \u00B7  ${row.system.note}"
-                    else -> ""
-                }
-                val text = android.text.SpannableString(row.system.name + extra)
-                if (extra.isNotEmpty()) {
-                    val color = when {
-                        v != null && !v.playable -> Palette.bad
-                        v?.rating == DeviceCheck.Rating.OK -> Palette.warn
-                        else -> Palette.muted
-                    }
-                    text.setSpan(android.text.style.ForegroundColorSpan(color), row.system.name.length, text.length, 0)
-                    text.setSpan(android.text.style.RelativeSizeSpan(0.7f), row.system.name.length, text.length, 0)
-                }
-                tv.text = text
+    fun bind(card: MainActivity.Card, favourite: Boolean) {
+        this.card = card
+        star.visibility = if (favourite) View.VISIBLE else View.GONE
+        badge.visibility = View.GONE
+        when (card) {
+            is MainActivity.Card.GameCard -> Covers.bindGame(image, card.game)
+            is MainActivity.Card.PcCard -> {
+                image.tag = null
+                image.setImageDrawable(PcArt.drawable(card.app))
             }
-            is Row.Item -> {
-                val box = holder.itemView as LinearLayout
-                (box.getChildAt(0) as TextView).text = row.game.title
-                (box.getChildAt(1) as TextView).text = row.game.file.parentFile?.name ?: ""
-                box.setOnClickListener { onClick(row.game) }
-            }
-            is Row.PcHeader -> {
-                val tv = holder.itemView as TextView
-                val title = "From your PC \u00B7 ${row.pc.name}"
-                val (status, color) = when (row.online) {
-                    true -> "   \u25CF Online" to Palette.good
-                    false -> "   \u25CF Offline - select a game to wake it" to Palette.warn
-                    null -> "   Checking..." to Palette.muted
-                }
-                val text = android.text.SpannableString(title + status)
-                text.setSpan(android.text.style.ForegroundColorSpan(color), title.length, text.length, 0)
-                text.setSpan(android.text.style.RelativeSizeSpan(0.7f), title.length, text.length, 0)
-                tv.text = text
-            }
-            is Row.PcItem -> {
-                val box = holder.itemView as LinearLayout
-                (box.getChildAt(0) as TextView).text = row.app.name
-                (box.getChildAt(1) as TextView).text = "via PC \u00B7 ${PcGames.describe(row.app.name)}"
-                box.setOnClickListener { onPcClick(row.pc, row.app) }
+            is MainActivity.Card.ActionCard -> {
+                image.tag = null
+                image.setImageDrawable(ActionArt(card.title, card.icon, card.color))
             }
         }
     }

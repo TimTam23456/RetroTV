@@ -23,7 +23,12 @@ class UploadServer(
                 newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", page())
             session.method == Method.GET && session.uri == "/pc" ->
                 newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", pcPage())
-            session.method == Method.GET && session.uri == "/pc/$SETUP_FILE" -> setupFile()
+            session.method == Method.GET && session.uri == "/pc/$SETUP_FILE" -> setupFile(session)
+            session.method == Method.POST && session.uri == "/pc/link" -> linkFromSetup(session)
+            session.method == Method.GET && session.uri == "/pc/link-status" -> json(linkStatus())
+            session.method == Method.POST && session.uri == "/pc/login" -> loginFromPage(session)
+            session.method == Method.GET && session.uri == "/log" ->
+                newFixedLengthResponse(Response.Status.OK, "text/plain; charset=utf-8", StreamLog.forWeb(ctx))
             session.method == Method.POST && session.uri == "/upload" -> upload(session)
             else -> newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Not found")
         }
@@ -74,6 +79,59 @@ class UploadServer(
     }
 
     private fun bad(msg: String) = newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, msg)
+
+    private fun json(o: org.json.JSONObject) =
+        newFixedLengthResponse(Response.Status.OK, "application/json", o.toString())
+
+    /** The PC's address as the TV sees it. */
+    private fun remoteIp(session: IHTTPSession) = session.remoteIpAddress.removePrefix("::ffff:")
+
+    /** Called by RetroTV PC Setup when it finishes: saves the Sunshine login and links in the background. */
+    private fun linkFromSetup(session: IHTTPSession): Response {
+        val files = HashMap<String, String>()
+        session.parseBody(files)
+        val body = org.json.JSONObject(files["postData"] ?: "{}")
+        if (!SetupTokens.valid(ctx, body.optString("token"))) return bad("This setup file is out of date. Download it again from the TV.")
+        val login = SunshineLogin(remoteIp(session), body.optString("user"), body.optString("pass"))
+        if (login.user.isEmpty() || login.pass.isEmpty()) return bad("Missing login")
+        SunshineLogins.save(ctx, login)
+        AutoLink.start(ctx, login.address)
+        return json(org.json.JSONObject().put("ok", true))
+    }
+
+    private fun linkStatus(): org.json.JSONObject {
+        val st = AutoLink.state.value
+        val pc = PcStore.get(ctx)
+        return org.json.JSONObject()
+            .put("state", when {
+                st.working -> "working"
+                st.linked -> "linked"
+                st.message.isNotEmpty() -> "failed"
+                pc != null -> "linked"
+                else -> "idle"
+            })
+            .put("message", st.message)
+            .put("pc", pc?.name ?: "")
+    }
+
+    /** "Installed Sunshine yourself?" form on the /pc page. */
+    private fun loginFromPage(session: IHTTPSession): Response {
+        val files = HashMap<String, String>()
+        session.parseBody(files)
+        val user = session.parameters["user"]?.firstOrNull().orEmpty().trim()
+        val pass = session.parameters["pass"]?.firstOrNull().orEmpty()
+        val login = SunshineLogin(remoteIp(session), user, pass)
+        val msg = when {
+            user.isEmpty() || pass.isEmpty() -> "Enter both the username and password."
+            !SunshineApi.check(login) -> "That login didn't work, or Sunshine isn't reachable on this PC (${login.address})."
+            else -> {
+                SunshineLogins.save(ctx, login)
+                AutoLink.start(ctx, login.address)
+                null
+            }
+        }
+        return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", pcPage(msg))
+    }
 
     private fun page(): String {
         val options = buildString {
@@ -136,16 +194,24 @@ go.onclick=async()=>{
 """.trimIndent()
     }
 
-    /** Serves RetroTV PC Setup straight from the TV, so the PC needs nothing else. */
-    private fun setupFile(): Response {
-        val bytes = ctx.assets.open(SETUP_FILE).use { it.readBytes() }
+    /**
+     * Serves RetroTV PC Setup straight from the TV. The copy is personalised with this TV's address
+     * and a one-time pass, so when setup finishes it can hand the TV the Sunshine login and the
+     * TV links itself - no code to type.
+     */
+    private fun setupFile(session: IHTTPSession): Response {
+        val host = session.headers["host"] ?: ""
+        val text = ctx.assets.open(SETUP_FILE).use { it.readBytes() }.toString(Charsets.ISO_8859_1)
+            .replace("__RETROTV_TV__", if (host.isNotEmpty()) "http://$host" else "")
+            .replace("__RETROTV_TOKEN__", SetupTokens.create(ctx))
+        val bytes = text.toByteArray(Charsets.ISO_8859_1)
         return newFixedLengthResponse(Response.Status.OK, "application/octet-stream",
             java.io.ByteArrayInputStream(bytes), bytes.size.toLong()).apply {
             addHeader("Content-Disposition", "attachment; filename=\"$SETUP_FILE\"")
         }
     }
 
-    private fun pcPage(): String = """
+    private fun pcPage(error: String? = null): String = """
 <!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RetroTV - Play from your PC</title>
@@ -161,22 +227,53 @@ go.onclick=async()=>{
  li{counter-increment:s;background:#181822;border-radius:12px;padding:14px 16px 14px 58px;margin:10px 0;position:relative}
  li::before{content:counter(s);position:absolute;left:16px;top:14px;width:28px;height:28px;border-radius:50%;background:#7c5cff;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center}
  li b{color:#eceaf4;display:block;margin-bottom:2px}
+ h2{font-size:18px;margin:32px 0 4px}
+ .status{display:none;margin:16px 0;padding:12px 14px;border-radius:10px;background:#181822}
+ .status.ok{display:block;border:1px solid #6ee7a8;color:#6ee7a8}
+ .status.work{display:block;border:1px solid #7c5cff;color:#cfc6ff}
+ .status.bad{display:block;border:1px solid #ff7a8a;color:#ff7a8a}
+ .err{color:#ff7a8a}
+ .login input{display:block;width:100%;box-sizing:border-box;margin:8px 0;padding:12px;border-radius:10px;border:1px solid #2c2b38;background:#181822;color:inherit;font-size:16px}
+ .login button{width:100%;padding:12px;border:0;border-radius:10px;background:#2c2646;color:#fff;font-size:16px;font-weight:600}
 </style></head><body><main>
 <h1>Play from your PC</h1>
 <p>Your PC runs the console and streams it to RetroTV. This one file sets everything up on Windows 10 or 11.</p>
+<div id="status" class="status"></div>
 <a class="dl" href="/pc/$SETUP_FILE" download>Download RetroTV PC Setup</a>
 <p class="small">If your browser warns about the file, choose <i>Keep</i>.</p>
 <ol>
 <li><b>Run it</b>Double-click <code>$SETUP_FILE</code> in your Downloads. If Windows says "Windows protected your PC", click <i>More info</i> &rarr; <i>Run anyway</i>, then <i>Yes</i> to allow the install.</li>
-<li><b>Let it work</b>It installs Sunshine and the controller driver, then finds your emulators (PS2, PS3, GameCube/Wii, Switch and more) and adds each one as a tile.</li>
-<li><b>Link the TV</b>On the TV, open RetroTV &rarr; <i>Play newer consoles from PC</i> and select this PC. Type the 4-digit code from the TV into the setup window.</li>
+<li><b>That's it</b>It installs Sunshine and the controller driver, adds a tile for each emulator it finds, and links your TV by itself - no code to type.</li>
 </ol>
-<p>Done - your PC games appear in the RetroTV library. Run the setup again whenever you install another emulator.</p>
+<p>Your PC games then appear in the RetroTV library. Run the setup again whenever you install another emulator.</p>
+<h2>Installed Sunshine yourself?</h2>
+<p class="small">Enter Sunshine's web login (the one you use at https://localhost:47990) and the TV links to this PC automatically.</p>
+${if (error != null) "<p class=\"err\">${error.replace("<", "&lt;")}</p>" else ""}
+<form method="post" action="/pc/login" class="login">
+<input name="user" placeholder="Sunshine username" autocomplete="username">
+<input name="pass" type="password" placeholder="Sunshine password" autocomplete="current-password">
+<button type="submit">Link this PC</button>
+</form>
 <p class="small">Missing an emulator? <a href="https://pcsx2.net/downloads" target="_blank" rel="noopener">PCSX2</a> (PS2) &middot;
 <a href="https://dolphin-emu.org/download/" target="_blank" rel="noopener">Dolphin</a> (GameCube / Wii) &middot;
 <a href="https://rpcs3.net/download" target="_blank" rel="noopener">RPCS3</a> (PS3)</p>
 <p><a href="/">&larr; Back to sending games</a></p>
-</main></body></html>
+</main>
+<script>
+const box=document.getElementById('status');
+async function poll(){
+ try{
+  const s=await (await fetch('/pc/link-status',{cache:'no-store'})).json();
+  if(s.state==='linked'){box.className='status ok';box.textContent='\u2713 Linked'+(s.pc?' to '+s.pc:'')+'. Your PC games are in the RetroTV library.';}
+  else if(s.state==='working'){box.className='status work';box.textContent='Linking the TV to this PC...';}
+  else if(s.state==='failed'){box.className='status bad';box.textContent='Linking didn\'t work: '+s.message;}
+  else box.className='status';
+ }catch(e){}
+ setTimeout(poll,2000);
+}
+poll();
+</script>
+</body></html>
 """.trimIndent()
 
     companion object {
