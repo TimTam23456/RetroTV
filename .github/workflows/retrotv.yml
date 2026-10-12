@@ -1,0 +1,57 @@
+name: Build RetroTV
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Uploads can land in extra folders; always build the copy whose code changed most recently.
+      - name: Find the newest upload
+        run: |
+          best=""; bestt=0; bestlen=0
+          while IFS= read -r f; do
+            d=$(dirname "$f"); t=$(git log -1 --format=%ct -- "$d/app" "$d/moonlight" "$f"); t=${t:-0}; len=${#d}
+            if [ "$t" -gt "$bestt" ] || { [ "$t" -eq "$bestt" ] && [ "$len" -gt "$bestlen" ]; }; then best=$d; bestt=$t; bestlen=$len; fi
+          done < <(find . -name settings.gradle.kts -not -path './.git/*')
+          echo "Building the newest upload: $best"
+          echo "PROJ=$best" >> "$GITHUB_ENV"
+
+      # The PC-streaming engine (Moonlight) has native code that needs this exact NDK.
+      - name: Install Android NDK
+        run: (yes || true) | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;23.2.8568313" > /dev/null
+
+      - name: Build APK
+        run: |
+          cd "$PROJ"
+          chmod +x gradlew
+          ./gradlew assembleRelease --stacktrace
+          cp app/build/outputs/apk/release/*.apk "$GITHUB_WORKSPACE/RetroTV.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RetroTV-apk
+          path: RetroTV.apk
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}-${{ github.run_attempt }}
+          name: RetroTV build ${{ github.run_number }}
+          make_latest: true
+          files: RetroTV.apk
