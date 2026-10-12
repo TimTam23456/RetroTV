@@ -104,7 +104,10 @@ object OnlineCache {
 
     /** Scans a source on the network (call off the main thread). */
     fun scan(ctx: Context, url: String): LibraryScan.Result {
-        val r = LibraryScan.scan(url, { fetchPage(it) })
+        // Folders on your own network (a PC or NAS) are fast to read, so look much deeper and wider:
+        // e.g. games/snes/<game folder>/<files>, with hundreds of games.
+        val r = if (LibraryScan.isLocal(url)) LibraryScan.scan(url, { fetchPage(it) }, maxDepth = 5, maxPages = 3000)
+        else LibraryScan.scan(url, { fetchPage(it) })
         if (r.pagesScanned == 0) throw IOException("Couldn't open that page. Check the address and that the site is reachable from the TV.")
         write(ctx, url, r)
         return r

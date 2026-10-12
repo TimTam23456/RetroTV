@@ -184,7 +184,26 @@ class LibraryActivity : RetroActivity() {
         filter = null
         heading.text = s.name
         val cached = OnlineCache.read(this, s.url)
-        if (cached != null) show(cached) else scan(s, force = false)
+        if (cached == null) { scan(s, force = false); return }
+        show(cached)
+        // Show the last scan straight away, then quietly check the source for new games
+        // (once per visit to Browse), so games you've added appear without pressing Rescan.
+        if (refreshed.add(s.url)) refreshQuietly(s)
+    }
+
+    private val refreshed = HashSet<String>()
+
+    private fun refreshQuietly(s: Sources.Source) {
+        scanJob?.cancel()
+        scanJob = lifecycleScope.launch {
+            try {
+                val r = withContext(Dispatchers.IO) { OnlineCache.scan(this@LibraryActivity, s.url) }
+                if (current?.url == s.url && r.games != result?.games) show(r)
+                renderSourcesKeepFocus()
+            } catch (_: Exception) {
+                // Source not reachable right now (PC off?) - keep showing the last scan.
+            }
+        }
     }
 
     private fun scan(s: Sources.Source, force: Boolean) {

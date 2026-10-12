@@ -144,6 +144,13 @@ object LibraryScan {
         return u
     }
 
+    /** True for addresses on the home network (192.168.x.x, 10.x, a plain PC/NAS name, .local). */
+    fun isLocal(url: String): Boolean {
+        val host = try { URI(normalize(url)).host ?: "" } catch (_: Exception) { "" }
+        return host.matches(Regex("""(10|127|192\.168|172\.(1[6-9]|2\d|3[01]))\.[\d.]+""")) ||
+            !host.contains('.') || host.endsWith(".local") || host.endsWith(".lan")
+    }
+
     private fun sameHost(a: URI, b: String) = try { URI(b).host.equals(a.host, ignoreCase = true) } catch (_: Exception) { false }
 
     private fun decode(s: String): String = try { URLDecoder.decode(s.replace("+", "%2B"), "UTF-8") } catch (_: Exception) { s }

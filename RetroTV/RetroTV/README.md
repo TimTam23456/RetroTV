@@ -123,6 +123,8 @@ and adds it to the TV's Browse tab by itself. Drop games into the console folder
 TV. It can start with Windows so the library is always there while the PC is on (it's also in this
 project at `app/src/main/assets/RetroTV-Game-Server.bat`).
 
+- Opening Browse checks your sources for new games by itself; **Rescan** (top bar) checks again right away.
+- Sources on your home network are searched deeply (sub-folders inside console folders, hundreds of games), so `snes/Some Game/Some Game.sfc` works.
 - Disc games: a `.cue` downloads together with its `.bin` tracks.
 - `.7z` and `.rar` files are skipped (RetroTV can't open them) - the screen tells you how many.
 - Pages that build their list with JavaScript, or need a login, can't be read. Plain file listings work best.
