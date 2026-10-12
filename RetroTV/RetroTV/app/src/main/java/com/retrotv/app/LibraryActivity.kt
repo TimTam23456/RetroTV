@@ -215,7 +215,15 @@ class LibraryActivity : RetroActivity() {
         emptyBox.visibility = View.GONE
         scanJob = lifecycleScope.launch {
             try {
-                val r = withContext(Dispatchers.IO) { OnlineCache.scan(this@LibraryActivity, s.url) }
+                val r = withContext(Dispatchers.IO) {
+                    OnlineCache.scan(this@LibraryActivity, s.url) { pages, files ->
+                        runOnUiThread {
+                            if (current?.url == s.url) status.text =
+                                "Looking for games on ${s.url} ...  $pages folder" + (if (pages == 1) "" else "s") +
+                                " checked, $files file" + (if (files == 1) "" else "s") + " found"
+                        }
+                    }
+                }
                 if (current?.url == s.url) show(r)
                 renderSourcesKeepFocus()
             } catch (e: Exception) {

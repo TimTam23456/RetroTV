@@ -195,6 +195,23 @@ Say '  Keep this window open (minimise it) while you use the TV. Close it to sto
 Say ''
 if (-not $Auto -and $IsWin) { try { Start-Process explorer.exe $Root } catch { } }
 
+# Clicking inside a console window normally "selects" text and freezes the program until you press a key,
+# which would leave the TV stuck on "Looking for games". Turn that off for this window.
+if ($IsWin) {
+    try {
+        Add-Type -Namespace RetroTV -Name ConsoleMode -MemberDefinition @'
+[DllImport("kernel32.dll")] public static extern IntPtr GetStdHandle(int h);
+[DllImport("kernel32.dll")] public static extern bool GetConsoleMode(IntPtr h, out uint m);
+[DllImport("kernel32.dll")] public static extern bool SetConsoleMode(IntPtr h, uint m);
+'@
+        $hIn = [RetroTV.ConsoleMode]::GetStdHandle(-10)
+        $mode = [uint32]0
+        if ([RetroTV.ConsoleMode]::GetConsoleMode($hIn, [ref]$mode)) {
+            [void][RetroTV.ConsoleMode]::SetConsoleMode($hIn, (($mode -band (-bnot 0x40)) -bor 0x80))
+        }
+    } catch { }
+}
+
 # Each request is handled on its own thread, so the TV can download two games while it browses.
 $handler = {
     param($client, $root)
@@ -263,7 +280,7 @@ $handler = {
             }
             [void]$sb.Append('</ul></body></html>')
             Send-Text 200 'OK' 'text/html; charset=utf-8' $sb.ToString()
-            return
+            return '[list]'
         }
 
         if (-not [IO.File]::Exists($full)) { Send-Text 404 'Not Found' 'text/plain' 'Not found'; return }
@@ -310,6 +327,7 @@ $handler = {
 $pool = [runspacefactory]::CreateRunspacePool(1, 8)
 $pool.Open()
 $jobs = [Collections.Generic.List[object]]::new()
+$lastScanNote = [datetime]::MinValue
 try {
     while ($true) {
         $client = $listener.AcceptTcpClient()
@@ -319,7 +337,13 @@ try {
         $jobs.Add([pscustomobject]@{ ps = $ps; handle = $ps.BeginInvoke() })
         foreach ($j in @($jobs)) {
             if ($j.handle.IsCompleted) {
-                try { foreach ($line in $j.ps.EndInvoke($j.handle)) { if ($line) { Say ("  {0:HH:mm}  {1}" -f (Get-Date), $line) 'DarkCyan' } } } catch { }
+                try {
+                    foreach ($line in $j.ps.EndInvoke($j.handle)) {
+                        if ($line -eq '[list]') {
+                            if (((Get-Date) - $lastScanNote).TotalSeconds -gt 30) { $lastScanNote = Get-Date; Say ("  {0:HH:mm}  RetroTV is looking through your games..." -f (Get-Date)) 'DarkCyan' }
+                        } elseif ($line) { Say ("  {0:HH:mm}  {1}" -f (Get-Date), $line) 'DarkCyan' }
+                    }
+                } catch { }
                 $j.ps.Dispose()
                 [void]$jobs.Remove($j)
             }

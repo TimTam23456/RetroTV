@@ -36,7 +36,10 @@ object LibraryScan {
      * Scans [startUrl]. [fetch] downloads a page's HTML (or returns null on failure).
      * Follows links into sub-folders under the start address, up to [maxDepth] levels and [maxPages] pages.
      */
-    fun scan(startUrl: String, fetch: (String) -> String?, maxDepth: Int = 2, maxPages: Int = 40): Result {
+    fun scan(
+        startUrl: String, fetch: (String) -> String?, maxDepth: Int = 2, maxPages: Int = 40,
+        onProgress: ((pages: Int, files: Int) -> Unit)? = null,
+    ): Result {
         val start = normalize(startUrl)
         val base = URI(start)
         val prefix = start.substringBeforeLast('/') + "/"
@@ -49,6 +52,7 @@ object LibraryScan {
             val (page, depth) = queue.removeFirst()
             if (!seenPages.add(page)) continue
             val html = fetch(page) ?: continue
+            onProgress?.invoke(seenPages.size, files.size)
             val pageUri = try { URI(page) } catch (_: Exception) { continue }
             for (m in hrefRegex.findAll(html)) {
                 val raw = m.groupValues[1].trim().replace("&amp;", "&")
