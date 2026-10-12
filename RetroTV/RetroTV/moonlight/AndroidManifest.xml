@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Moonlight v12.1's manifest, trimmed for use inside RetroTV:
+  - no launcher entry (RetroTV is the only icon on the TV)
+  - no app-wide icon/theme/backup settings (RetroTV's own are used)
+  Everything RetroTV launches (the stream screen and stream settings) is kept as-is.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission
+        android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"
+        android:maxSdkVersion="33" />
+
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.wifi" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.sensor.accelerometer" android:required="false" />
+    <uses-feature android:name="android.hardware.sensor.gyroscope" android:required="false" />
+
+    <!-- Lets Moonlight talk plain HTTP to the PC on the home network (needed for pairing). -->
+    <application android:networkSecurityConfig="@xml/network_security_config">
+
+        <provider
+            android:name="com.limelight.PosterContentProvider"
+            android:authorities="poster.${applicationId}"
+            android:enabled="true"
+            android:exported="true" />
+
+        <meta-data
+            android:name="com.android.graphics.intervention.wm.allowDownscale"
+            android:value="false" />
+
+        <!-- Moonlight's own PC browser screens. RetroTV doesn't open these, but Moonlight's
+             code refers to them, so they stay declared (without a launcher icon). -->
+        <activity
+            android:name="com.limelight.PcView"
+            android:theme="@style/AppTheme"
+            android:exported="false"
+            android:configChanges="mcc|mnc|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection" />
+        <activity
+            android:name="com.limelight.ShortcutTrampoline"
+            android:theme="@style/AppTheme"
+            android:noHistory="true"
+            android:exported="false"
+            android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection" />
+        <activity
+            android:name="com.limelight.AppView"
+            android:theme="@style/AppTheme"
+            android:exported="false"
+            android:configChanges="mcc|mnc|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection" />
+        <activity
+            android:name="com.limelight.preferences.AddComputerManually"
+            android:theme="@style/AppTheme"
+            android:exported="false"
+            android:windowSoftInputMode="stateVisible"
+            android:configChanges="mcc|mnc|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection" />
+        <activity
+            android:name="com.limelight.HelpActivity"
+            android:theme="@style/AppTheme"
+            android:exported="false"
+            android:configChanges="mcc|mnc|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection" />
+
+        <!-- Stream quality settings, opened from RetroTV's PC screen. -->
+        <activity
+            android:name="com.limelight.preferences.StreamSettings"
+            android:exported="false"
+            android:theme="@style/AppTheme"
+            android:label="Stream quality"
+            android:configChanges="mcc|mnc|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection" />
+
+        <!-- The streaming screen itself. -->
+        <activity
+            android:name="com.limelight.Game"
+            android:exported="false"
+            android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection"
+            android:noHistory="true"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:theme="@style/StreamTheme"
+            android:preferMinimalPostProcessing="true">
+            <meta-data android:name="com.nvidia.immediateInput" android:value="true" />
+            <meta-data android:name="com.nvidia.rawCursorInput" android:value="true" />
+        </activity>
+
+        <service
+            android:name="com.limelight.discovery.DiscoveryService"
+            android:exported="false" />
+        <service
+            android:name="com.limelight.computers.ComputerManagerService"
+            android:exported="false" />
+        <service
+            android:name="com.limelight.binding.input.driver.UsbDriverService"
+            android:exported="false" />
+    </application>
+</manifest>
