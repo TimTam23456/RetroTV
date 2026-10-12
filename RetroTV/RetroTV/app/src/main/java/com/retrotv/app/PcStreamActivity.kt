@@ -31,7 +31,9 @@ import kotlinx.coroutines.withContext
  * "Play from PC": link the TV to a PC running RetroTV PC Setup (Sunshine), then stream its games.
  * Streaming itself is done by the built-in Moonlight engine - no other app needed.
  */
-class PcStreamActivity : AppCompatActivity() {
+class PcStreamActivity : RetroActivity() {
+
+    override val tabIndex = 1
 
     private lateinit var leftCol: LinearLayout
     private lateinit var rightCol: LinearLayout
@@ -54,7 +56,7 @@ class PcStreamActivity : AppCompatActivity() {
         val root = FrameLayout(this).apply { background = Scrims.screen() }
         val columns = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(48), dp(32), dp(48), dp(24))
+            setPadding(dp(48), dp(12), dp(48), dp(24))
         }
         leftCol = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -68,7 +70,10 @@ class PcStreamActivity : AppCompatActivity() {
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         columns.addView(ScrollView(this).apply { addView(rightCol) },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.4f))
-        root.addView(columns)
+        val page = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        page.addView(TabBar.build(this, 1))
+        page.addView(columns, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        root.addView(page)
         overlay = FrameLayout(this).apply {
             setBackgroundColor(Color.parseColor("#D90E0F13"))
             visibility = View.GONE

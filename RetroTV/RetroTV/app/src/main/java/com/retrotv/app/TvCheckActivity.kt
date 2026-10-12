@@ -17,7 +17,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** "Is my TV good enough?" screen: shows the TV's hardware and a verdict for every console. */
-class TvCheckActivity : AppCompatActivity() {
+class TvCheckActivity : RetroActivity() {
 
     private lateinit var infoBox: LinearLayout
     private lateinit var listBox: LinearLayout

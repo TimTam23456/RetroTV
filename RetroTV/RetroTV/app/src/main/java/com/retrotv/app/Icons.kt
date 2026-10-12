@@ -11,7 +11,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /** Simple line icons drawn in code (24x24 design grid), so the app needs no icon files. */
-enum class Icon { HOME, GAMEPAD, PC, SETTINGS, PLUS, GAUGE, STAR, STAR_FILLED, PLAY, WIFI, TRASH, REFRESH, INFO, QR, TV, CHEVRON, LINK, IMAGE, FOLDER }
+enum class Icon { HOME, GAMEPAD, PC, SETTINGS, PLUS, GAUGE, STAR, STAR_FILLED, PLAY, WIFI, TRASH, REFRESH, INFO, QR, TV, CHEVRON, LINK, IMAGE, FOLDER, SOUND }
 
 class IconDrawable(private val icon: Icon, color: Int) : Drawable() {
 
@@ -125,6 +125,13 @@ class IconDrawable(private val icon: Icon, color: Int) : Drawable() {
                 canvas.drawRoundRect(RectF(3f, 4.5f, 21f, 19.5f), 2f, 2f, stroke)
                 p.moveTo(4f, 17f); p.lineTo(9.5f, 11.5f); p.lineTo(13f, 15f); p.lineTo(15.5f, 12.5f); p.lineTo(20f, 17f)
                 canvas.drawPath(p, stroke); canvas.drawCircle(15.5f, 8.5f, 1.5f, fill)
+            }
+            Icon.SOUND -> {
+                p.moveTo(3.5f, 9.5f); p.lineTo(7.5f, 9.5f); p.lineTo(12.5f, 5f); p.lineTo(12.5f, 19f)
+                p.lineTo(7.5f, 14.5f); p.lineTo(3.5f, 14.5f); p.close()
+                canvas.drawPath(p, stroke)
+                canvas.drawArc(RectF(11f, 8f, 18f, 16f), -50f, 100f, false, stroke)
+                canvas.drawArc(RectF(11f, 4.5f, 21.5f, 19.5f), -50f, 100f, false, stroke)
             }
             Icon.FOLDER -> {
                 p.moveTo(3f, 7f); p.lineTo(3f, 19f); p.lineTo(21f, 19f); p.lineTo(21f, 8.5f); p.lineTo(11.5f, 8.5f)

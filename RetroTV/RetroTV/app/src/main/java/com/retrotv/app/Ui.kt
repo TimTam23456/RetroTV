@@ -156,6 +156,7 @@ object Ui {
             box.addView(row)
             if (first == null) first = row
         }
+        dialog.setOnCancelListener { Sfx.play(Sfx.S.BACK) }
         dialog.setContentView(box, android.view.ViewGroup.LayoutParams(activity.dp(420), android.view.ViewGroup.LayoutParams.WRAP_CONTENT))
         dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
         dialog.show()
@@ -195,12 +196,13 @@ object Ui {
         }.also { row.addView(it) } else null
         if (onClick != null) {
             row.setOnFocusChangeListener { _, has ->
+                if (has) Sfx.play(Sfx.S.MOVE) // pop-ups have their own window, so they need their own sounds
                 row.background = rowBg(ctx, has)
                 t.setTextColor(if (has) Palette.bg else Palette.text)
                 sub?.setTextColor(if (has) 0xFF3A3A48.toInt() else Palette.muted)
                 v?.setTextColor(if (has) 0xFF3A3A48.toInt() else Palette.muted)
             }
-            row.setOnClickListener { onClick() }
+            row.setOnClickListener { Sfx.play(Sfx.S.SELECT); onClick() }
         }
         row.layoutParams = android.widget.LinearLayout.LayoutParams(
             android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT
@@ -334,6 +336,7 @@ object AddGames {
         val done = Ui.listRow(activity, "Done", null) { dialog.dismiss() }
         col.addView(done)
         box.addView(col, android.widget.LinearLayout.LayoutParams(activity.dp(340), android.view.ViewGroup.LayoutParams.WRAP_CONTENT))
+        dialog.setOnCancelListener { Sfx.play(Sfx.S.BACK) }
         dialog.setContentView(box)
         dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
         dialog.show()

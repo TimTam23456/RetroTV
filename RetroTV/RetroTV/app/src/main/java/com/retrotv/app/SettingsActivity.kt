@@ -21,13 +21,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Settings: categories on the left, their options on the right (console style). */
-class SettingsActivity : AppCompatActivity() {
+class SettingsActivity : RetroActivity() {
+
+    override val tabIndex = 2
 
     private data class Category(val id: String, val title: String, val icon: Icon)
 
     private val categories = listOf(
         Category("controllers", "Controllers", Icon.GAMEPAD),
         Category("games", "Games & cover art", Icon.FOLDER),
+        Category("sound", "Sound", Icon.SOUND),
         Category("pc", "PC streaming", Icon.PC),
         Category("tv", "This TV", Icon.TV),
         Category("about", "About", Icon.INFO),
@@ -42,11 +45,16 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val page = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = Scrims.screen()
+        }
+        page.addView(TabBar.build(this, 2))
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            background = Scrims.screen()
-            setPadding(dp(48), dp(32), dp(48), dp(24))
+            setPadding(dp(48), dp(14), dp(48), dp(24))
         }
+        page.addView(root, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         // ---- left: categories
         val left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -57,12 +65,12 @@ class SettingsActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams(dp(28), dp(28)))
             addView(TextView(this@SettingsActivity).apply {
                 text = "Settings"
-                textSize = 28f
+                textSize = 22f
                 setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD))
                 setTextColor(Palette.text)
                 setPadding(dp(12), 0, 0, 0)
             })
-            setPadding(0, 0, 0, dp(20))
+            setPadding(0, 0, 0, dp(12))
         })
         for (c in categories) {
             val v = categoryRow(c)
@@ -92,7 +100,7 @@ class SettingsActivity : AppCompatActivity() {
             addView(detail)
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(right, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
-        setContentView(root)
+        setContentView(page)
 
         catViews.first().requestFocus()
     }
@@ -157,6 +165,7 @@ class SettingsActivity : AppCompatActivity() {
         when (id) {
             "controllers" -> controllers()
             "games" -> games()
+            "sound" -> sound()
             "pc" -> pc()
             "tv" -> tv()
             "about" -> about()
@@ -222,6 +231,30 @@ class SettingsActivity : AppCompatActivity() {
             Covers.clearCache(this)
             Toast.makeText(this, "Cover art will reload", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun sound() {
+        val ctx = this
+        section("Music")
+        val musicOn = SoundPrefs.musicOn(ctx)
+        row("Background music", "Original RetroTV soundtrack in the menus. Stops while you play.", if (musicOn) "On" else "Off") {
+            SoundPrefs.setMusicOn(ctx, !musicOn)
+            Music.settingsChanged()
+            show("sound"); focusRowWithTitle("Background music")
+        }
+        val level = SoundPrefs.musicLevel(ctx)
+        row("Music volume", "Low, Medium or High", SoundPrefs.levelNames[level]) {
+            SoundPrefs.setMusicLevel(ctx, (level + 1) % 3)
+            Music.settingsChanged()
+            show("sound"); focusRowWithTitle("Music volume")
+        }
+        section("Menu sounds")
+        val sfxOn = SoundPrefs.sfxOn(ctx)
+        row("Menu sounds", "Clicks and chimes when you move around and select", if (sfxOn) "On" else "Off") {
+            SoundPrefs.setSfxOn(ctx, !sfxOn)
+            show("sound"); focusRowWithTitle("Menu sounds")
+        }
+        row("Switching tabs", "Press LB / RB on the controller to move between Games, PC and Settings.")
     }
 
     private fun pc() {

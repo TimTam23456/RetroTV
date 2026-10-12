@@ -14,7 +14,9 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 
 /** Pause menu shown over the game. Opening it pauses emulation automatically. */
-class MenuActivity : AppCompatActivity() {
+class MenuActivity : RetroActivity() {
+
+    override val playsMusic = false
 
     companion object {
         const val EXTRA_TITLE = "title"
@@ -34,10 +36,7 @@ class MenuActivity : AppCompatActivity() {
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(28), dp(24), dp(28), dp(24))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(18).toFloat()
-                setColor(Palette.bg)
-            }
+            background = Ui.panel(this@MenuActivity)
         }
 
         panel.addView(TextView(this).apply {

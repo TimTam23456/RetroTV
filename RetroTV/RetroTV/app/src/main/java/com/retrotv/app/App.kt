@@ -12,6 +12,8 @@ import kotlin.concurrent.thread
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
+        Sfx.init(this)
+        Music.init(this)
         // Keep the upload page running while RetroTV is open on screen (any screen), stop it otherwise.
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) = UploadHub.start(this@App)

@@ -5,6 +5,8 @@ A controller-friendly retro game emulator for Android TV / Google TV.
 - Console-style home screen: cover art, "Continue playing", Favourites, a row per console, your PC's games
 - Cover art downloaded automatically from the free libretro thumbnail library (designed covers when there's no match)
 - Settings screen, and a QR code for sending games from your phone
+- Original background music and menu sounds (made for RetroTV - see `make_audio.py`), adjustable in Settings > Sound
+- **LB / RB** switch between the Games, PC and Settings tabs
 - Bluetooth controllers (Xbox, PlayStation, generic), up to 4 players
 - Send games to the TV from your phone or PC over Wi-Fi, or load them from a USB drive
 - Save states, in-game saves kept automatically, pause menu (Select + Start)
@@ -105,7 +107,8 @@ Use games you own. RetroTV doesn't come with any.
 - **Left / right** moves along a row, **up / down** between rows. The top shows the selected game.
 - **A / OK** plays. **Y** (or hold OK, or the remote's menu button) opens options: favourite,
   remove from Continue playing, delete the game from the TV.
-- Top bar: **Games**, **PC**, **Settings**, then **+** (add games via QR code) and the TV check.
+- Top bar: **Games**, **PC**, **Settings** (or press **LB / RB** to switch), then **+** (add games via QR code) and the TV check.
+- Music plays in the menus and fades out when a game or PC stream starts. Turn it down or off in Settings > Sound.
 
 ## Controls
 

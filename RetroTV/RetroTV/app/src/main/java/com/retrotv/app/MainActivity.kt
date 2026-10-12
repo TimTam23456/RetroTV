@@ -19,7 +19,6 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.TextClock
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -50,7 +49,9 @@ import kotlinx.coroutines.withContext
  *  SNES              [][][][][]
  *  ...
  */
-class MainActivity : AppCompatActivity(), InputManager.InputDeviceListener {
+class MainActivity : RetroActivity(), InputManager.InputDeviceListener {
+
+    override val tabIndex = 0
 
     // ---- views
     private lateinit var backdrop: ImageView
@@ -169,49 +170,25 @@ class MainActivity : AppCompatActivity(), InputManager.InputDeviceListener {
     }
 
     private fun buildTopBar(): View {
-        val bar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(48), dp(22), dp(40), dp(6))
-        }
-        // Logo
-        bar.addView(ImageView(this).apply {
-            setImageDrawable(IconDrawable(Icon.GAMEPAD, Color.WHITE))
-            background = GradientDrawable().apply { cornerRadius = dp(9).toFloat(); setColor(Palette.accent) }
-            setPadding(dp(5), dp(5), dp(5), dp(5))
-        }, LinearLayout.LayoutParams(dp(32), dp(32)))
-        bar.addView(TextView(this).apply {
-            text = "RetroTV"
-            textSize = 20f
-            setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD))
-            setTextColor(Palette.text)
-            setPadding(dp(10), 0, dp(28), 0)
-        })
-        // Tabs
-        bar.addView(Ui.tab(this, "Games", selected = true) { rowsScroll.smoothScrollTo(0, 0); focusFirstCard() })
-        bar.addView(Ui.tab(this, "PC", selected = false) { startActivity(Intent(this, PcStreamActivity::class.java)) })
-        bar.addView(Ui.tab(this, "Settings", selected = false) { startActivity(Intent(this, SettingsActivity::class.java)) })
-        bar.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
-        // Quick actions
-        bar.addView(Ui.iconButton(this, Icon.PLUS, "Add games") { AddGames.show(this) })
-        bar.addView(Ui.iconButton(this, Icon.GAUGE, "TV check") { startActivity(Intent(this, TvCheckActivity::class.java)) })
-        // Controller status + clock (not focusable)
+        // Controller status (not focusable)
         padIcon = ImageView(this).apply { setImageDrawable(IconDrawable(Icon.GAMEPAD, Palette.muted)) }
-        bar.addView(padIcon, LinearLayout.LayoutParams(dp(24), dp(24)).apply { leftMargin = dp(18) })
         padText = TextView(this).apply {
             textSize = 13f
             setTextColor(Palette.muted)
-            setPadding(dp(5), 0, dp(16), 0)
+            setPadding(dp(5), 0, 0, 0)
         }
-        bar.addView(padText)
-        bar.addView(TextClock(this).apply {
-            format12Hour = "h:mm"
-            format24Hour = "HH:mm"
-            textSize = 18f
-            setTextColor(Palette.text)
-            setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL))
-        })
-        return bar
+        val pad = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), 0, 0, 0)
+            addView(padIcon, LinearLayout.LayoutParams(dp(24), dp(24)))
+            addView(padText)
+        }
+        return TabBar.build(this, 0, listOf(
+            Ui.iconButton(this, Icon.PLUS, "Add games") { AddGames.show(this) },
+            Ui.iconButton(this, Icon.GAUGE, "TV check") { startActivity(Intent(this, TvCheckActivity::class.java)) },
+            pad,
+        ))
     }
 
     private fun buildHero(): View {
@@ -538,6 +515,7 @@ class MainActivity : AppCompatActivity(), InputManager.InputDeviceListener {
     // ===================================================================== actions
 
     private fun open(card: Card) {
+        Sfx.play(if (card is Card.ActionCard) Sfx.S.SELECT else Sfx.S.LAUNCH)
         when (card) {
             is Card.GameCard -> openGame(card.game)
             is Card.PcCard -> openPcGame(card.pc, card.app)
