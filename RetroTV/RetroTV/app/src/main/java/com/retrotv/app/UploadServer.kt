@@ -29,6 +29,7 @@ class UploadServer(
             session.method == Method.POST && session.uri == "/pc/login" -> loginFromPage(session)
             session.method == Method.GET && session.uri == "/library" ->
                 newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", libraryPage(null))
+            session.method == Method.GET && session.uri == "/library/$SERVER_FILE" -> gameServerFile(session)
             session.method == Method.POST && session.uri == "/library/add" -> libraryAdd(session)
             session.method == Method.POST && session.uri == "/library/remove" -> libraryRemove(session)
             session.method == Method.GET && session.uri == "/log" ->
@@ -131,6 +132,18 @@ class UploadServer(
         return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", libraryPage(msg))
     }
 
+    /** RetroTV Game Server for the PC, personalised with this TV's address so it adds itself under Browse. */
+    private fun gameServerFile(session: IHTTPSession): Response {
+        val host = session.headers["host"] ?: ""
+        val text = ctx.assets.open(SERVER_FILE).use { it.readBytes() }.toString(Charsets.ISO_8859_1)
+            .replace("__RETROTV_TV__", if (host.isNotEmpty()) "http://$host" else "")
+        val bytes = text.toByteArray(Charsets.ISO_8859_1)
+        return newFixedLengthResponse(Response.Status.OK, "application/octet-stream",
+            java.io.ByteArrayInputStream(bytes), bytes.size.toLong()).apply {
+            addHeader("Content-Disposition", "attachment; filename=\"$SERVER_FILE\"")
+        }
+    }
+
     private fun libraryRemove(session: IHTTPSession): Response {
         session.parseBody(HashMap())
         val url = session.parameters["url"]?.firstOrNull().orEmpty()
@@ -161,10 +174,19 @@ class UploadServer(
  ul{list-style:none;padding:0} li{display:flex;align-items:center;gap:12px;background:#181822;border-radius:12px;padding:12px 14px;margin:8px 0}
  li div{flex:1;min-width:0} li span{display:block;color:#a9a6b8;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  .rm{background:#2c2646;font-size:14px;padding:8px 12px} .none{color:#a9a6b8} .msg{color:#6ee7a8}
+ .pc{background:#181822;border-radius:14px;padding:16px;margin:18px 0}
+ .dl{display:block;text-align:center;padding:14px;border-radius:10px;background:#7c5cff;color:#fff;text-decoration:none;font-weight:700}
 </style></head><body><main>
 <h1>Online library</h1>
 <p>Add a web page or folder that links to game files - your own NAS or home server, a folder of your backups, or a homebrew site. The TV finds every game on it (including sub-folders) under <b>Browse</b>.</p>
 ${if (msg != null) "<p class=\"msg\">${esc(msg)}</p>" else ""}
+<div class="pc">
+<h2 style="font-size:18px;margin:0 0 4px">Share a games folder from this PC</h2>
+<p style="margin:0 0 12px">One file turns a folder on your Windows PC into a library for the TV, and adds it here by itself. Drop games into its console folders and they show up under Browse.</p>
+<a class="dl" href="/library/$SERVER_FILE" download>Download RetroTV Game Server</a>
+<p style="font-size:13px;margin:10px 0 0">Double-click it (if Windows warns: <i>More info</i> &rarr; <i>Run anyway</i>). Keep its window open while you play, or let it start with Windows.</p>
+</div>
+<h2 style="font-size:18px;margin-top:28px">Or add any address</h2>
 <form method="post" action="/library/add">
 <input name="url" placeholder="Address, e.g. 192.168.1.50:8000/games" required autocapitalize="off" autocorrect="off" inputmode="url">
 <input name="name" placeholder="Name (optional), e.g. My NAS">
@@ -343,6 +365,7 @@ poll();
 
     companion object {
         const val SETUP_FILE = "RetroTV-PC-Setup.bat"
+        const val SERVER_FILE = "RetroTV-Game-Server.bat"
 
         fun localIp(): String? = try {
             NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()

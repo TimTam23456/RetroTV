@@ -116,6 +116,13 @@ library you can download from - for example a folder of your games on a home NAS
 3. Press **A** on a game to download it into your library (two downloads at a time, keeps going while you
    browse). When it says "In library", press **A** again to play.
 
+**Share a games folder from your PC (one file):** open `http://<your TV's address>/library` on the PC and
+download **RetroTV Game Server**. Double-click it: it makes a `RetroTV Games` folder with a sub-folder
+per console (or uses a folder you choose), shares it on your home Wi-Fi at `http://<PC address>:8080/games`,
+and adds it to the TV's Browse tab by itself. Drop games into the console folders and they show up on the
+TV. It can start with Windows so the library is always there while the PC is on (it's also in this
+project at `app/src/main/assets/RetroTV-Game-Server.bat`).
+
 - Disc games: a `.cue` downloads together with its `.bin` tracks.
 - `.7z` and `.rar` files are skipped (RetroTV can't open them) - the screen tells you how many.
 - Pages that build their list with JavaScript, or need a login, can't be read. Plain file listings work best.
