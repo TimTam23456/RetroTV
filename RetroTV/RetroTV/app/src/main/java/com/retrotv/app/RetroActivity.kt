@@ -22,7 +22,7 @@ import androidx.appcompat.app.AppCompatActivity
  */
 abstract class RetroActivity : AppCompatActivity() {
 
-    /** Which top tab this screen is (0 Games, 1 PC, 2 Settings), or null if it isn't a tab. */
+    /** Which top tab this screen is (0 Games, 1 Browse, 2 PC, 3 Settings), or null if it isn't a tab. */
     open val tabIndex: Int? = null
 
     /** Menus play music; the in-game pause menu doesn't. */
@@ -86,8 +86,8 @@ abstract class RetroActivity : AppCompatActivity() {
     }
 
     companion object {
-        val TABS = listOf(MainActivity::class.java, PcStreamActivity::class.java, SettingsActivity::class.java)
-        val TAB_NAMES = listOf("Games", "PC", "Settings")
+        val TABS = listOf(MainActivity::class.java, LibraryActivity::class.java, PcStreamActivity::class.java, SettingsActivity::class.java)
+        val TAB_NAMES = listOf("Games", "Browse", "PC", "Settings")
     }
 }
 

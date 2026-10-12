@@ -6,7 +6,8 @@ A controller-friendly retro game emulator for Android TV / Google TV.
 - Cover art downloaded automatically from the free libretro thumbnail library (designed covers when there's no match)
 - Settings screen, and a QR code for sending games from your phone
 - Original background music and menu sounds (made for RetroTV - see `make_audio.py`), adjustable in Settings > Sound
-- **LB / RB** switch between the Games, PC and Settings tabs
+- **LB / RB** switch between the Games, Browse, PC and Settings tabs
+- **Browse (online library)**: add a web address and RetroTV lists every game file it can download from that page, with covers
 - Bluetooth controllers (Xbox, PlayStation, generic), up to 4 players
 - Send games to the TV from your phone or PC over Wi-Fi, or load them from a USB drive
 - Save states, in-game saves kept automatically, pause menu (Select + Start)
@@ -102,12 +103,31 @@ pair button on top until the Xbox logo flashes quickly. RetroTV's home screen sh
 
 Use games you own. RetroTV doesn't come with any.
 
+## Browse: download games from a web page
+
+The **Browse** tab (press **RB** from Games) turns any web page that links to game files into a
+library you can download from - for example a folder of your games on a home NAS or PC
+(`192.168.1.50/games`), or your own web storage.
+
+1. **Add a source:** press **Add a source** and type the address with the TV keyboard - or, easier,
+   open `http://<your TV's address>/library` on your phone or PC and paste it there.
+2. RetroTV reads the page and its sub-folders (two levels deep), finds every file it can play, works out
+   the console from the folder name or file type, and shows them as a cover grid. Filter by console at the top.
+3. Press **A** on a game to download it into your library (two downloads at a time, keeps going while you
+   browse). When it says "In library", press **A** again to play.
+
+- Disc games: a `.cue` downloads together with its `.bin` tracks.
+- `.7z` and `.rar` files are skipped (RetroTV can't open them) - the screen tells you how many.
+- Pages that build their list with JavaScript, or need a login, can't be read. Plain file listings work best.
+- Remove a source: highlight it and press **Y** (or hold OK). Already downloaded games stay.
+- Only add sources with games you own or that are free to download.
+
 ## Home screen
 
 - **Left / right** moves along a row, **up / down** between rows. The top shows the selected game.
 - **A / OK** plays. **Y** (or hold OK, or the remote's menu button) opens options: favourite,
   remove from Continue playing, delete the game from the TV.
-- Top bar: **Games**, **PC**, **Settings** (or press **LB / RB** to switch), then **+** (add games via QR code) and the TV check.
+- Top bar: **Games**, **Browse**, **PC**, **Settings** (or press **LB / RB** to switch), then **+** (add games via QR code) and the TV check.
 - Music plays in the menus and fades out when a game or PC stream starts. Turn it down or off in Settings > Sound.
 
 ## Controls

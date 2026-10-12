@@ -294,6 +294,7 @@ class MainActivity : RetroActivity(), InputManager.InputDeviceListener {
             Card.ActionCard("pc", if (pc == null) "Play from your PC" else "PC settings",
                 if (pc == null) "Stream PS2, PS3, GameCube, Switch and more from your Windows PC." else "Stream quality, wake your PC, or link a different one.",
                 Icon.PC, 0xFF1E3A8A.toInt()),
+            Card.ActionCard("browse", "Browse online", "Find and download games from web pages you add, like your own NAS or home server.", Icon.LINK, 0xFF0B7FAB.toInt()),
             Card.ActionCard("tvcheck", "TV check", "See which consoles this TV can run smoothly.", Icon.GAUGE, 0xFF0E7C86.toInt()),
             Card.ActionCard("settings", "Settings", "Controllers, cover art, PC streaming and more.", Icon.SETTINGS, 0xFF374151.toInt()),
         )
@@ -524,6 +525,7 @@ class MainActivity : RetroActivity(), InputManager.InputDeviceListener {
                 "pc" -> startActivity(Intent(this, PcStreamActivity::class.java))
                 "tvcheck" -> startActivity(Intent(this, TvCheckActivity::class.java))
                 "settings" -> startActivity(Intent(this, SettingsActivity::class.java))
+                "browse" -> goToTab(1)
             }
         }
     }

@@ -23,7 +23,7 @@ import kotlinx.coroutines.withContext
 /** Settings: categories on the left, their options on the right (console style). */
 class SettingsActivity : RetroActivity() {
 
-    override val tabIndex = 2
+    override val tabIndex = 3
 
     private data class Category(val id: String, val title: String, val icon: Icon)
 
@@ -49,7 +49,7 @@ class SettingsActivity : RetroActivity() {
             orientation = LinearLayout.VERTICAL
             background = Scrims.screen()
         }
-        page.addView(TabBar.build(this, 2))
+        page.addView(TabBar.build(this, 3))
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(48), dp(14), dp(48), dp(24))
@@ -219,6 +219,7 @@ class SettingsActivity : RetroActivity() {
                 Toast.makeText(this@SettingsActivity, "Found $n game" + if (n == 1) "" else "s", Toast.LENGTH_SHORT).show()
             }
         }
+        row("Online library", "Browse and download games from web pages you add") { goToTab(1) }
         row("Where RetroTV looks", "Games you send to the TV, the TV's Download folder, and any USB drive.")
         section("Cover art")
         val on = prefs.getBoolean("cover_art", true)

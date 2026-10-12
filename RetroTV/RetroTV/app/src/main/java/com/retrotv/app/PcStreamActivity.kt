@@ -33,7 +33,7 @@ import kotlinx.coroutines.withContext
  */
 class PcStreamActivity : RetroActivity() {
 
-    override val tabIndex = 1
+    override val tabIndex = 2
 
     private lateinit var leftCol: LinearLayout
     private lateinit var rightCol: LinearLayout
@@ -71,7 +71,7 @@ class PcStreamActivity : RetroActivity() {
         columns.addView(ScrollView(this).apply { addView(rightCol) },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.4f))
         val page = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        page.addView(TabBar.build(this, 1))
+        page.addView(TabBar.build(this, 2))
         page.addView(columns, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(page)
         overlay = FrameLayout(this).apply {

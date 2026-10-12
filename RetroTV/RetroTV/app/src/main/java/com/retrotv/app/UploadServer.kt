@@ -27,6 +27,10 @@ class UploadServer(
             session.method == Method.POST && session.uri == "/pc/link" -> linkFromSetup(session)
             session.method == Method.GET && session.uri == "/pc/link-status" -> json(linkStatus())
             session.method == Method.POST && session.uri == "/pc/login" -> loginFromPage(session)
+            session.method == Method.GET && session.uri == "/library" ->
+                newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", libraryPage(null))
+            session.method == Method.POST && session.uri == "/library/add" -> libraryAdd(session)
+            session.method == Method.POST && session.uri == "/library/remove" -> libraryRemove(session)
             session.method == Method.GET && session.uri == "/log" ->
                 newFixedLengthResponse(Response.Status.OK, "text/plain; charset=utf-8", StreamLog.forWeb(ctx))
             session.method == Method.POST && session.uri == "/upload" -> upload(session)
@@ -114,6 +118,66 @@ class UploadServer(
             .put("pc", pc?.name ?: "")
     }
 
+    // ---------------------------------------------------------------- online library sources
+
+    private fun libraryAdd(session: IHTTPSession): Response {
+        session.parseBody(HashMap())
+        val url = session.parameters["url"]?.firstOrNull().orEmpty().trim()
+        val name = session.parameters["name"]?.firstOrNull().orEmpty().trim()
+        val msg = if (url.isEmpty()) "Enter an address." else {
+            val s = Sources.add(ctx, url, name)
+            "Added ${s.name}. It's on the TV under Browse now."
+        }
+        return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", libraryPage(msg))
+    }
+
+    private fun libraryRemove(session: IHTTPSession): Response {
+        session.parseBody(HashMap())
+        val url = session.parameters["url"]?.firstOrNull().orEmpty()
+        if (url.isNotEmpty()) Sources.remove(ctx, url)
+        return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", libraryPage("Removed."))
+    }
+
+    private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+
+    private fun libraryPage(msg: String?): String {
+        val rows = Sources.load(ctx).joinToString("") { s ->
+            "<li><div><b>${esc(s.name)}</b><span>${esc(s.url)}</span></div>" +
+                "<form method=\"post\" action=\"/library/remove\"><input type=\"hidden\" name=\"url\" value=\"${esc(s.url)}\">" +
+                "<button class=\"rm\">Remove</button></form></li>"
+        }.ifEmpty { "<li class=\"none\">No sources yet.</li>" }
+        return """
+<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RetroTV - Online library</title>
+<style>
+ :root{color-scheme:dark}
+ body{margin:0;font-family:system-ui,sans-serif;background:#0e0f13;color:#eceaf4}
+ main{max-width:600px;margin:0 auto;padding:28px 16px 48px}
+ h1{margin:0 0 6px;font-size:28px} p{color:#a9a6b8;line-height:1.5} a{color:#b9a8ff}
+ input{display:block;width:100%;box-sizing:border-box;margin:8px 0;padding:12px;border-radius:10px;border:1px solid #2c2b38;background:#181822;color:inherit;font-size:16px}
+ button{padding:12px 16px;border:0;border-radius:10px;background:#7c5cff;color:#fff;font-size:16px;font-weight:700}
+ .add{width:100%;margin-top:4px}
+ ul{list-style:none;padding:0} li{display:flex;align-items:center;gap:12px;background:#181822;border-radius:12px;padding:12px 14px;margin:8px 0}
+ li div{flex:1;min-width:0} li span{display:block;color:#a9a6b8;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .rm{background:#2c2646;font-size:14px;padding:8px 12px} .none{color:#a9a6b8} .msg{color:#6ee7a8}
+</style></head><body><main>
+<h1>Online library</h1>
+<p>Add a web page or folder that links to game files - your own NAS or home server, a folder of your backups, or a homebrew site. The TV finds every game on it (including sub-folders) under <b>Browse</b>.</p>
+${if (msg != null) "<p class=\"msg\">${esc(msg)}</p>" else ""}
+<form method="post" action="/library/add">
+<input name="url" placeholder="Address, e.g. 192.168.1.50:8000/games" required autocapitalize="off" autocorrect="off" inputmode="url">
+<input name="name" placeholder="Name (optional), e.g. My NAS">
+<button class="add">Add to TV</button>
+</form>
+<h2 style="font-size:18px;margin-top:28px">Your sources</h2>
+<ul>$rows</ul>
+<p style="font-size:13px">Only add places you're allowed to download from, and use games you own. Pages that build their file list with JavaScript can't be read; plain folder listings work best.</p>
+<p><a href="/">&larr; Back to sending games</a></p>
+</main></body></html>
+""".trimIndent()
+    }
+
     /** "Installed Sunshine yourself?" form on the /pc page. */
     private fun loginFromPage(session: IHTTPSession): Response {
         val files = HashMap<String, String>()
@@ -165,7 +229,8 @@ class UploadServer(
 <input id="f" type="file" multiple>
 <button id="go">Send to TV</button>
 <div id="list"></div>
-<p style="margin-top:28px">Want PS2, GameCube, PS3 or Switch on the TV? <a href="/pc" style="color:#b9a8ff">Get RetroTV PC Setup</a>.</p>
+<p style="margin-top:28px">Have games on a home server or NAS? <a href="/library" style="color:#b9a8ff">Add it to the online library</a>.</p>
+<p>Want PS2, GameCube, PS3 or Switch on the TV? <a href="/pc" style="color:#b9a8ff">Get RetroTV PC Setup</a>.</p>
 </main><script>
 const go=document.getElementById('go'),list=document.getElementById('list');
 go.onclick=async()=>{

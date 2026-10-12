@@ -83,6 +83,28 @@ object Covers {
         }
     }
 
+    /** Cover for a game found on an online library page (not downloaded yet). */
+    fun bindRemote(view: ImageView, game: LibraryScan.RemoteGame) {
+        val key = "r:" + game.url
+        jobs.remove(view)?.cancel()
+        view.tag = key
+        mem.get(key)?.let { view.setImageBitmap(it); return }
+        val sys = Systems.byId(game.systemId)
+        view.setImageDrawable(CoverDrawable(game.title, sys?.short ?: "GAME", sys?.color ?: 0xFF4B5563.toInt()))
+        if (sys == null || !enabled(view.context)) return
+        val ctx = view.context.applicationContext
+        val title = game.fileName.substringBeforeLast('.')
+        jobs[view] = scope.launch {
+            val bmp = withContext(io) { coverFile(ctx, key, title, sys.artFolders)?.let { decode(it, 360) } } ?: return@launch
+            mem.put(key, bmp)
+            if (view.tag == key) {
+                view.setImageBitmap(bmp)
+                view.alpha = 0f
+                view.animate().alpha(1f).setDuration(180).start()
+            }
+        }
+    }
+
     /** Small blurred version of the cover for the full-screen backdrop, or null if there's no art. */
     suspend fun backdrop(ctx: Context, game: Game): Bitmap? = withContext(io) {
         val key = "b:" + game.file.absolutePath
@@ -118,23 +140,24 @@ object Covers {
     }
 
     /** The cached cover image file for a game, downloading it if needed. */
-    private suspend fun coverFile(ctx: Context, game: Game): File? {
-        val url = resolveUrl(ctx, game) ?: return null
+    private suspend fun coverFile(ctx: Context, game: Game): File? =
+        coverFile(ctx, game.file.absolutePath, game.file.nameWithoutExtension, foldersFor(game))
+
+    private suspend fun coverFile(ctx: Context, key: String, title: String, folders: List<String>): File? {
+        val url = resolveUrl(ctx, key, title, folders) ?: return null
         val file = File(dir(ctx, "img"), sha1(url) + ".png")
         if (file.exists() && file.length() > 0) return file
         return if (download(url, file)) file else null
     }
 
-    private suspend fun resolveUrl(ctx: Context, game: Game): String? {
+    private suspend fun resolveUrl(ctx: Context, key: String, title: String, folders: List<String>): String? {
         val prefs = ctx.getSharedPreferences("art", Context.MODE_PRIVATE)
-        val key = game.file.absolutePath
         prefs.getString(key, null)?.let { saved ->
             if (saved.startsWith("http")) return saved
             val missAt = saved.removePrefix("-").toLongOrNull() ?: 0
             if (System.currentTimeMillis() - missAt < MISS_RETRY) return null
         }
-        val title = game.file.nameWithoutExtension
-        for (folder in foldersFor(game)) {
+        for (folder in folders) {
             val names = index(ctx, folder)
             val match = CoverMatch.best(title, names) ?: continue
             val url = BASE + enc(folder) + "/Named_Boxarts/" + enc(match) + ".png"
@@ -142,7 +165,7 @@ object Covers {
             return url
         }
         // Only remember a miss if we actually had the lists to look in.
-        if (foldersFor(game).all { indexes[it]?.isNotEmpty() == true }) {
+        if (folders.all { indexes[it]?.isNotEmpty() == true }) {
             prefs.edit().putString(key, "-" + System.currentTimeMillis()).apply()
         }
         return null
