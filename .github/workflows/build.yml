@@ -1,0 +1,49 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Works even if the project was uploaded inside extra folders.
+      - name: Find the project
+        run: echo "PROJ=$(dirname "$(find . -name settings.gradle.kts -not -path './.git/*' | head -1)")" >> "$GITHUB_ENV"
+
+      # The PC-streaming engine (Moonlight) has native code that needs this exact NDK.
+      - name: Install Android NDK
+        run: (yes || true) | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;23.2.8568313" > /dev/null
+
+      - name: Build APK
+        run: |
+          cd "$PROJ"
+          chmod +x gradlew
+          ./gradlew assembleRelease --stacktrace
+          cp app/build/outputs/apk/release/*.apk "$GITHUB_WORKSPACE/RetroTV.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RetroTV-apk
+          path: RetroTV.apk
+
+      # Fixed download link: https://github.com/<you>/RetroTV/releases/latest/download/RetroTV.apk
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: RetroTV build ${{ github.run_number }}
+          make_latest: true
+          files: RetroTV.apk
