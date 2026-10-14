@@ -109,6 +109,7 @@ class MainActivity : RetroActivity(), InputManager.InputDeviceListener {
 
     override fun onStart() {
         super.onStart()
+        if (kidsBuilt != Kids.on(this)) { recreate(); return }
         rescan()
         updatePads()
         checkTv()
@@ -136,6 +137,7 @@ class MainActivity : RetroActivity(), InputManager.InputDeviceListener {
     }
 
     private var resumedBefore = false
+    private var kidsBuilt = false
 
     override fun onResume() {
         super.onResume()
@@ -201,7 +203,13 @@ class MainActivity : RetroActivity(), InputManager.InputDeviceListener {
             addView(padIcon, LinearLayout.LayoutParams(dp(24), dp(24)))
             addView(padText)
         }
+        kidsBuilt = Kids.on(this)
+        if (kidsBuilt) return TabBar.build(this, 0, listOf(
+            Ui.iconButton(this, Icon.KIDS, "Grown-ups") { Kids.askToLeave(this) { recreate() } },
+            pad,
+        ))
         return TabBar.build(this, 0, listOf(
+            Ui.iconButton(this, Icon.SEARCH, "Search") { startActivity(Intent(this, SearchActivity::class.java)) },
             Ui.iconButton(this, Icon.PLUS, "Add games") { AddGames.show(this) },
             Ui.iconButton(this, Icon.GAUGE, "TV check") { startActivity(Intent(this, TvCheckActivity::class.java)) },
             pad,
@@ -274,6 +282,13 @@ class MainActivity : RetroActivity(), InputManager.InputDeviceListener {
     }
 
     private fun buildRows(): List<RowData> {
+        if (Kids.on(this)) {
+            val kids = games.map { Card.GameCard(it) }.filter { Kids.isKidsGame(this, it.key) }
+            return if (kids.isEmpty()) listOf(RowData("kids", "Kids mode", "No games picked yet", listOf(
+                Card.ActionCard("kidsinfo", "Ask a grown-up", "Grown-ups: leave kids mode (top right), press Y on a game, then Add to Kids games.", Icon.KIDS, 0xFFE86A9A.toInt()))))
+            else listOf(RowData("kids", "Let's play!", "${kids.size} game" + (if (kids.size == 1) "" else "s"), kids)) +
+                kids.groupBy { it.game.system }.toSortedMap(compareBy { Systems.all.indexOf(it) }).map { (sys, list) -> RowData("kids:${sys.id}", sys.name, null, list) }
+        }
         val pc = PcStore.get(this)
         val pcCards = pc?.apps?.map { Card.PcCard(pc, it) }.orEmpty()
         val gameCards = games.map { Card.GameCard(it) }
@@ -543,12 +558,13 @@ class MainActivity : RetroActivity(), InputManager.InputDeviceListener {
                 "tvcheck" -> startActivity(Intent(this, TvCheckActivity::class.java))
                 "settings" -> startActivity(Intent(this, SettingsActivity::class.java))
                 "browse" -> goToTab(1)
+                "kidsinfo" -> Kids.askToLeave(this) { recreate() }
             }
         }
     }
 
     private fun showOptions(card: Card) {
-        if (card is Card.ActionCard) return
+        if (card is Card.ActionCard || Kids.on(this)) return
         val fav = GameStats.isFavourite(this, card.key)
         val options = mutableListOf<Pair<String, () -> Unit>>()
         options += (if (card is Card.PcCard) "Stream" else "Play") to { open(card) }
@@ -561,6 +577,13 @@ class MainActivity : RetroActivity(), InputManager.InputDeviceListener {
                 GameStats.forget(this, card.key)
                 if (fav) GameStats.setFavourite(this, card.key, true)
                 render()
+            }
+        }
+        if (card is Card.GameCard) {
+            val kid = Kids.isKidsGame(this, card.key)
+            options += (if (kid) "Remove from Kids games" else "Add to Kids games") to {
+                Kids.setKidsGame(this, card.key, !kid)
+                Toast.makeText(this, if (kid) "Removed from kids mode" else "Added - it shows up in kids mode", Toast.LENGTH_SHORT).show()
             }
         }
         if (card is Card.GameCard && Library.isDeletable(this, card.game)) {
@@ -588,6 +611,8 @@ class MainActivity : RetroActivity(), InputManager.InputDeviceListener {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (Kids.on(this) && (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_BUTTON_B)) return true // stay in kids mode
+        if (keyCode == KeyEvent.KEYCODE_SEARCH && !Kids.on(this)) { startActivity(Intent(this, SearchActivity::class.java)); return true }
         if (keyCode == KeyEvent.KEYCODE_BUTTON_Y || keyCode == KeyEvent.KEYCODE_MENU) {
             val v = currentFocus
             if (v is CardView) {

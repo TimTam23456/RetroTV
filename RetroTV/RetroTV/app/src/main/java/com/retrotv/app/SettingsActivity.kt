@@ -234,6 +234,32 @@ class SettingsActivity : RetroActivity() {
         row("Online library", "Browse and download games from web pages you add") { goToTab(1) }
         row("Check USB drive or SD card", "See what RetroTV can find on each drive") { driveCheck() }
         row("Where RetroTV looks", "Games you send to the TV, the TV's Download folder, and any USB drive or card reader.")
+        section("Kids")
+        row("Kids mode", "Only the games you pick, big and simple. No settings, deleting or cheats. PIN to leave.", "${Kids.count(this)} games picked") {
+            if (Kids.count(this) == 0) Toast.makeText(this, "Tip: pick kids' games first - on the home screen press Y on a game > Add to Kids games", Toast.LENGTH_LONG).show()
+            Kids.turnOn(this) {
+                startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+                finish()
+            }
+        }
+        section("Picture and play")
+        row("Picture style", "Smooth HD cleans up pixel art on a big TV. Also changeable in the pause menu.", Video.styleName(Video.style(this))) {
+            Video.nextStyle(this)
+            show("games")
+            focusRowWithTitle("Picture style")
+        }
+        val hd = Video.hd3d(this)
+        row("HD 3D consoles", "N64, PS1, PSP, Dreamcast, DS and up render at 2x resolution. Much sharper, needs a fast TV.", if (hd) "On" else "Off") {
+            Video.setHd3d(this, !hd)
+            show("games")
+            focusRowWithTitle("HD 3D consoles")
+        }
+        val rw = Video.rewind(this)
+        row("Rewind", "Hold Select + LB in a game to go back up to 30 seconds", if (rw) "On" else "Off") {
+            Video.setRewind(this, !rw)
+            show("games")
+            focusRowWithTitle("Rewind")
+        }
         section("Cover art")
         val on = prefs.getBoolean("cover_art", true)
         row("Download cover art", "Box art from the free libretro thumbnail library", if (on) "On" else "Off") {

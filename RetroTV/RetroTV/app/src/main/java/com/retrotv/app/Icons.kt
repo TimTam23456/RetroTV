@@ -11,7 +11,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /** Simple line icons drawn in code (24x24 design grid), so the app needs no icon files. */
-enum class Icon { HOME, GAMEPAD, PC, SETTINGS, PLUS, GAUGE, STAR, STAR_FILLED, PLAY, WIFI, TRASH, REFRESH, INFO, QR, TV, CHEVRON, LINK, IMAGE, FOLDER, SOUND }
+enum class Icon { HOME, GAMEPAD, PC, SETTINGS, PLUS, GAUGE, STAR, STAR_FILLED, PLAY, WIFI, TRASH, REFRESH, INFO, QR, TV, CHEVRON, LINK, IMAGE, FOLDER, SOUND, SEARCH, KIDS }
 
 class IconDrawable(private val icon: Icon, color: Int) : Drawable() {
 
@@ -71,6 +71,12 @@ class IconDrawable(private val icon: Icon, color: Int) : Drawable() {
                 stroke.strokeWidth = 2f
             }
             Icon.PLUS -> { canvas.drawLine(12f, 5f, 12f, 19f, stroke); canvas.drawLine(5f, 12f, 19f, 12f, stroke) }
+            Icon.SEARCH -> { canvas.drawCircle(10.5f, 10.5f, 6f, stroke); canvas.drawLine(15f, 15f, 20f, 20f, stroke) }
+            Icon.KIDS -> {
+                canvas.drawCircle(12f, 12f, 8.5f, stroke)
+                canvas.drawCircle(9f, 10f, 1.2f, fill); canvas.drawCircle(15f, 10f, 1.2f, fill)
+                canvas.drawArc(RectF(8f, 10f, 16f, 17f), 20f, 140f, false, stroke)
+            }
             Icon.GAUGE -> {
                 canvas.drawArc(RectF(3.5f, 5.5f, 20.5f, 22.5f), 160f, 220f, false, stroke)
                 canvas.drawLine(12f, 14f, 16.5f, 9.5f, stroke)

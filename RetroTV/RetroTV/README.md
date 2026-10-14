@@ -12,7 +12,13 @@ A controller-friendly retro game emulator for Android TV / Google TV.
 - Send games to the TV from your phone or PC over Wi-Fi, or load them from a USB drive
 - Save states, in-game saves kept automatically, pause menu (Select + Start)
 - **Cheats** in the pause menu: thousands of codes from the free libretro cheat list, or type your own (Game Genie, Action Replay, GameShark)
-- **Fast forward** (3x) from the pause menu
+- **Fast forward** (3x): pause menu, or Select + RB
+- **Rewind**: hold Select + LB to play the last 30 seconds backwards (2D and PS1-era consoles)
+- **Search** (magnifier on the top bar): finds games on the TV, USB drives, your PC and your online sources, even with typos
+- **Picture styles**: Smooth HD (cleans up pixel art on a big TV), Retro CRT, Handheld screen, Sharp pixels
+- **HD 3D consoles** (Settings): N64, PS1, PSP, Dreamcast and up render at 2x resolution on fast TVs
+- **Kids mode** (Settings > Kids): only the games you pick, no settings or deleting, PIN to leave
+- **Save backup**: open `http://<TV address>/saves` on a phone or PC to download all your saves as a zip, or restore them
 - Asks the TV for its low-latency game mode while you play, so the controller feels snappier
 - Emulator cores are downloaded the first time you play each console
 - **TV check**: works out how powerful your TV is and rates every console (great / playable / too slow)

@@ -27,6 +27,11 @@ class MenuActivity : RetroActivity() {
         const val EXTRA_SYSTEM = "system"
         const val EXTRA_SPEED = "speed"
         const val FAST = "fast"
+        const val STYLE = "style"
+        const val REWIND = "rewind"
+        const val EXTRA_STYLE = "style_name"
+        const val EXTRA_CAN_REWIND = "can_rewind"
+        const val EXTRA_KIDS = "kids"
         const val SAVE = "save"
         const val LOAD = "load"
         const val RESET = "reset"
@@ -69,7 +74,8 @@ class MenuActivity : RetroActivity() {
                 alpha = 0.4f
             }
         }
-        addButton(panel, "Cheats") {
+        val kids = intent.getBooleanExtra(EXTRA_KIDS, false)
+        if (!kids) addButton(panel, "Cheats") {
             startActivity(Intent(this, CheatsActivity::class.java)
                 .putExtra(CheatsActivity.EXTRA_PATH, intent.getStringExtra(EXTRA_PATH))
                 .putExtra(CheatsActivity.EXTRA_SYSTEM, intent.getStringExtra(EXTRA_SYSTEM))
@@ -77,10 +83,21 @@ class MenuActivity : RetroActivity() {
         }
         val speed = intent.getIntExtra(EXTRA_SPEED, 1)
         addButton(panel, if (speed > 1) "Fast forward: ${speed}x (press for normal)" else "Fast forward") { done(FAST) }
-        addButton(panel, "Reset game") { done(RESET) }
+        addButton(panel, "Rewind 10 seconds") { done(REWIND) }.apply {
+            if (!intent.getBooleanExtra(EXTRA_CAN_REWIND, false)) { isEnabled = false; alpha = 0.4f }
+        }
+        if (!kids) addButton(panel, "Picture: ${intent.getStringExtra(EXTRA_STYLE) ?: "Automatic"}") { done(STYLE) }
+        if (!kids) addButton(panel, "Reset game") { done(RESET) }
         addButton(panel, "Quit to library") { done(QUIT) }
 
-        overlay.addView(panel, FrameLayout.LayoutParams(dp(380), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        panel.addView(TextView(this).apply {
+            text = "Hotkeys: Select + LB rewind (hold), Select + RB fast forward"
+            textSize = 12f
+            setTextColor(Palette.muted)
+            setPadding(0, dp(12), 0, 0)
+        })
+        val scroll = android.widget.ScrollView(this).apply { addView(panel); isVerticalScrollBarEnabled = false }
+        overlay.addView(scroll, FrameLayout.LayoutParams(dp(420), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         setContentView(overlay)
         resume.requestFocus()
     }

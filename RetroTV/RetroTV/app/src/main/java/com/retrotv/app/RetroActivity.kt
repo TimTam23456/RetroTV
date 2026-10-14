@@ -70,6 +70,7 @@ abstract class RetroActivity : AppCompatActivity() {
 
     fun goToTab(to: Int) {
         val from = tabIndex ?: return
+        if (Kids.on(this)) return // kids stay on their games
         if (to == from) return
         Sfx.play(Sfx.S.TAB)
         if (to == 0) {
@@ -95,6 +96,7 @@ abstract class RetroActivity : AppCompatActivity() {
 object TabBar {
     fun build(activity: RetroActivity, selected: Int, extras: List<View> = emptyList()): LinearLayout {
         val ctx = activity
+        val kids = Kids.on(ctx)
         val bar = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -112,11 +114,15 @@ object TabBar {
             setTextColor(Palette.text)
             setPadding(ctx.dp(10), 0, ctx.dp(22), 0)
         })
-        bar.addView(shoulderHint(ctx, "LB"))
-        RetroActivity.TAB_NAMES.forEachIndexed { i, name ->
-            bar.addView(Ui.tab(ctx, name, selected = i == selected) { activity.goToTab(i) })
+        if (kids) {
+            bar.addView(TextView(ctx).apply { text = "Kids"; textSize = 20f; setTypeface(typeface, Typeface.BOLD); setTextColor(0xFFFF8FC0.toInt()) })
+        } else {
+            bar.addView(shoulderHint(ctx, "LB"))
+            RetroActivity.TAB_NAMES.forEachIndexed { i, name ->
+                bar.addView(Ui.tab(ctx, name, selected = i == selected) { activity.goToTab(i) })
+            }
+            bar.addView(shoulderHint(ctx, "RB"))
         }
-        bar.addView(shoulderHint(ctx, "RB"))
         bar.addView(View(ctx), LinearLayout.LayoutParams(0, 1, 1f))
         extras.forEach { bar.addView(it) }
         bar.addView(TextClock(ctx).apply {

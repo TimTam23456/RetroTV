@@ -32,6 +32,10 @@ class UploadServer(
             session.method == Method.GET && session.uri == "/library/$SERVER_FILE" -> gameServerFile(session)
             session.method == Method.POST && session.uri == "/library/add" -> libraryAdd(session)
             session.method == Method.POST && session.uri == "/library/remove" -> libraryRemove(session)
+            session.method == Method.GET && session.uri == "/saves" ->
+                newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", savesPage(null))
+            session.method == Method.GET && session.uri == "/saves/RetroTV-saves.zip" -> savesZip()
+            session.method == Method.POST && session.uri == "/saves/restore" -> savesRestore(session)
             session.method == Method.GET && session.uri == "/storage" ->
                 newFixedLengthResponse(Response.Status.OK, "text/plain; charset=utf-8", storageReport())
             session.method == Method.GET && session.uri == "/log" ->
@@ -83,6 +87,84 @@ class UploadServer(
         if (!part.renameTo(dest)) return bad("Couldn't save file")
         onUploaded(name)
         return newFixedLengthResponse(Response.Status.OK, MIME_PLAINTEXT, "ok")
+    }
+
+    // ---------------------------------------------------------------- save backup
+
+    private fun saveRoots() = listOf(File(ctx.filesDir, "saves"), File(ctx.filesDir, "states"))
+
+    private fun savesPage(msg: String?): String {
+        val files = saveRoots().flatMap { root -> root.walkTopDown().filter { it.isFile }.toList() }
+        val saves = files.count { it.path.contains("/saves/") }
+        val states = files.count { it.path.contains("/states/") }
+        return """
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RetroTV - Save backup</title>
+<style>:root{color-scheme:dark}body{margin:0;font-family:system-ui,sans-serif;background:#0e0f13;color:#eceaf4}main{max-width:600px;margin:0 auto;padding:28px 16px 48px}
+h1{margin:0 0 6px;font-size:28px}p{color:#a9a6b8;line-height:1.5}a.b,button{display:block;width:100%;box-sizing:border-box;text-align:center;margin:14px 0;padding:15px;border:0;border-radius:12px;background:#7c5cff;color:#fff;font-size:17px;font-weight:700;text-decoration:none}
+button.g{background:#2c2646}.msg{color:#6ee7a8}input{margin:8px 0;color:#eceaf4}</style></head><body><main>
+<h1>Save backup</h1>
+<p>Your progress on the TV: <b>$saves</b> in-game saves and <b>$states</b> save states.</p>
+${if (msg != null) "<p class=\"msg\">${esc(msg)}</p>" else ""}
+<a class="b" href="/saves/RetroTV-saves.zip" download>Download all saves</a>
+<p>Keep the zip on your PC or phone. To put saves back (on this TV or a new one), choose the zip here:</p>
+<input type="file" id="f" accept=".zip"><button class="g" id="go">Restore saves from zip</button>
+<p style="font-size:13px">Restoring replaces saves with the same name. Quit any game on the TV first.</p>
+<p><a href="/" style="color:#b9a8ff">&larr; Back</a></p>
+<script>
+document.getElementById('go').onclick=async()=>{const f=document.getElementById('f').files[0];if(!f)return alert('Choose the zip first');
+const r=await fetch('/saves/restore',{method:'POST',body:f});document.open();document.write(await r.text());document.close();};
+</script></main></body></html>
+""".trimIndent()
+    }
+
+    private fun savesZip(): Response {
+        val out = File(ctx.cacheDir, "RetroTV-saves.zip")
+        java.util.zip.ZipOutputStream(FileOutputStream(out)).use { zip ->
+            for (root in saveRoots()) {
+                root.walkTopDown().filter { it.isFile }.forEach { f ->
+                    zip.putNextEntry(java.util.zip.ZipEntry(root.name + "/" + f.relativeTo(root).path.replace('\\', '/')))
+                    f.inputStream().use { it.copyTo(zip) }
+                    zip.closeEntry()
+                }
+            }
+        }
+        return newFixedLengthResponse(Response.Status.OK, "application/zip", out.inputStream(), out.length()).apply {
+            addHeader("Content-Disposition", "attachment; filename=\"RetroTV-saves.zip\"")
+        }
+    }
+
+    private fun savesRestore(session: IHTTPSession): Response {
+        val length = session.headers["content-length"]?.toLongOrNull() ?: return bad("Missing length")
+        if (length > 512L * 1024 * 1024) return bad("That file is too big to be a save backup")
+        val tmp = File(ctx.cacheDir, "restore.zip")
+        FileOutputStream(tmp).use { out ->
+            val buf = ByteArray(64 * 1024)
+            var left = length
+            while (left > 0) {
+                val n = session.inputStream.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
+                if (n < 0) break
+                out.write(buf, 0, n); left -= n
+            }
+        }
+        var count = 0
+        try {
+            java.util.zip.ZipFile(tmp).use { zip ->
+                for (e in zip.entries()) {
+                    if (e.isDirectory) continue
+                    val name = e.name.replace('\\', '/')
+                    // Only saves and states, and never outside those folders.
+                    if (!(name.startsWith("saves/") || name.startsWith("states/")) || name.contains("..")) continue
+                    val dest = File(ctx.filesDir, name)
+                    dest.parentFile?.mkdirs()
+                    zip.getInputStream(e).use { input -> FileOutputStream(dest).use { input.copyTo(it) } }
+                    count++
+                }
+            }
+        } catch (e: Exception) {
+            return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", savesPage("That doesn't look like a RetroTV save backup (${e.message})."))
+        } finally { tmp.delete() }
+        return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", savesPage("Restored $count save file" + (if (count == 1) "" else "s") + "."))
     }
 
     /** Plain-text drive report, so a phone can check what the TV sees on a USB stick. */
@@ -265,6 +347,7 @@ ${if (msg != null) "<p class=\"msg\">${esc(msg)}</p>" else ""}
 <button id="go">Send to TV</button>
 <div id="list"></div>
 <p style="margin-top:28px">Have games on a home server or NAS? <a href="/library" style="color:#b9a8ff">Add it to the online library</a>.</p>
+<p>Back up your progress: <a href="/saves" style="color:#b9a8ff">download or restore your saves</a>.</p>
 <p>Want PS2, GameCube, PS3 or Switch on the TV? <a href="/pc" style="color:#b9a8ff">Get RetroTV PC Setup</a>.</p>
 </main><script>
 const go=document.getElementById('go'),list=document.getElementById('list');

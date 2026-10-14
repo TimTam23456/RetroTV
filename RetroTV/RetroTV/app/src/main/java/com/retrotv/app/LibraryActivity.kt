@@ -63,6 +63,7 @@ class LibraryActivity : RetroActivity() {
         }
         page.addView(TabBar.build(this, 1, listOf(
             Ui.iconButton(this, Icon.PLUS, "Add a source") { showAddSource() },
+            Ui.iconButton(this, Icon.SEARCH, "Search") { startActivity(android.content.Intent(this, SearchActivity::class.java)) },
             Ui.iconButton(this, Icon.REFRESH, "Rescan") { current?.let { scan(it, force = true) } },
         )))
         val body = LinearLayout(this).apply {

@@ -175,6 +175,8 @@ class GameActivity : AppCompatActivity() {
             saveRAMState = sramFile.takeIf { it.exists() && it.length() > 0 }?.readBytes()
             preferLowLatencyAudio = true
             rumbleEventsEnabled = false
+            shader = Video.shaderFor(this@GameActivity, system)
+            variables = Video.coreVariables(this@GameActivity, system)
         }
         val view = GLRetroView(this, data)
         view.isFocusable = false
@@ -207,6 +209,7 @@ class GameActivity : AppCompatActivity() {
             }
         }
         lifecycleScope.launch { watchSpeed() }
+        if (Video.rewind(this)) lifecycleScope.launch { captureRewind() }
         // Back up in-game saves every 20 seconds.
         lifecycleScope.launch {
             while (isActive) {
@@ -298,6 +301,12 @@ class GameActivity : AppCompatActivity() {
                 toast(if (ok) "State loaded" else "Couldn't load state")
             }
             MenuActivity.RESET -> view.reset()
+            MenuActivity.STYLE -> {
+                val next = Video.nextStyle(this)
+                view.shader = Video.shaderFor(this, system)
+                toast("Picture: ${Video.styleName(next)}")
+            }
+            MenuActivity.REWIND -> rewindBy(20) // about 10 seconds
             MenuActivity.FAST -> {
                 view.frameSpeed = if (view.frameSpeed > 1) 1 else 3
                 toast(if (view.frameSpeed > 1) "Fast forward on (3x) - pause menu to turn it off" else "Normal speed")
@@ -363,8 +372,71 @@ class GameActivity : AppCompatActivity() {
                 .putExtra(MenuActivity.EXTRA_PLAYERS, ports.size)
                 .putExtra(MenuActivity.EXTRA_PATH, gameFile.absolutePath)
                 .putExtra(MenuActivity.EXTRA_SYSTEM, system.id)
-                .putExtra(MenuActivity.EXTRA_SPEED, retroView?.frameSpeed ?: 1))
+                .putExtra(MenuActivity.EXTRA_SPEED, retroView?.frameSpeed ?: 1)
+                .putExtra(MenuActivity.EXTRA_STYLE, Video.styleName(Video.style(this@GameActivity)))
+                .putExtra(MenuActivity.EXTRA_CAN_REWIND, rewindStates.isNotEmpty())
+                .putExtra(MenuActivity.EXTRA_KIDS, Kids.on(this@GameActivity)))
         }
+    }
+
+    // ---------- rewind ----------
+
+    /** Snapshots of the last ~30 seconds (every half second), within a memory budget. */
+    private val rewindStates = ArrayDeque<ByteArray>()
+    private var rewindBytes = 0L
+    @Volatile private var rewinding = false
+    private var rewindJob: kotlinx.coroutines.Job? = null
+
+    private suspend fun captureRewind() {
+        delay(3000)
+        val budget = 64L * 1024 * 1024
+        while (true) {
+            delay(500)
+            val view = retroView ?: return
+            if (menuOpen || rewinding || !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) continue
+            val state = try { withContext(Dispatchers.IO) { view.serializeState() } } catch (_: Exception) { continue }
+            if (state.isEmpty()) return
+            if (state.size > 6 * 1024 * 1024) return // big 3D consoles: too heavy to rewind smoothly
+            synchronized(rewindStates) {
+                rewindStates.addLast(state)
+                rewindBytes += state.size
+                while (rewindStates.size > 60 || rewindBytes > budget) rewindBytes -= rewindStates.removeFirst().size
+            }
+        }
+    }
+
+    /** Steps back through the snapshots while the hotkey is held - the game plays backwards. */
+    private fun startRewinding() {
+        val view = retroView ?: return
+        if (rewinding) return
+        if (rewindStates.isEmpty()) { toast(if (Video.rewind(this)) "Nothing to rewind yet" else "Rewind is off (Settings > Games)"); return }
+        rewinding = true
+        view.audioEnabled = false
+        rewindJob = lifecycleScope.launch {
+            while (rewinding) {
+                val state = synchronized(rewindStates) { rewindStates.removeLastOrNull()?.also { rewindBytes -= it.size } } ?: break
+                withContext(Dispatchers.IO) { try { view.unserializeState(state) } catch (_: Exception) { false } }
+                delay(110)
+            }
+            stopRewinding()
+        }
+    }
+
+    private fun stopRewinding() {
+        if (!rewinding) return
+        rewinding = false
+        retroView?.audioEnabled = true
+    }
+
+    private suspend fun rewindBy(steps: Int) {
+        val view = retroView ?: return
+        val state = synchronized(rewindStates) {
+            var s: ByteArray? = null
+            repeat(steps) { rewindStates.removeLastOrNull()?.let { rewindBytes -= it.size; s = it } }
+            s
+        } ?: return toast("Nothing to rewind yet")
+        withContext(Dispatchers.IO) { view.unserializeState(state) }
+        toast("Rewound")
     }
 
     // ---------- input ----------
@@ -414,6 +486,20 @@ class GameActivity : AppCompatActivity() {
             openMenu()
             return true
         }
+        // Hotkeys: hold Select + LB to rewind, Select + RB toggles fast forward.
+        if (KeyEvent.KEYCODE_BUTTON_SELECT in held && key == KeyEvent.KEYCODE_BUTTON_L1) {
+            if (event.action == KeyEvent.ACTION_DOWN) startRewinding() else stopRewinding()
+            return true
+        }
+        if (KeyEvent.KEYCODE_BUTTON_SELECT in held && key == KeyEvent.KEYCODE_BUTTON_R1) {
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                view.frameSpeed = if (view.frameSpeed > 1) 1 else 3
+                toast(if (view.frameSpeed > 1) "Fast forward" else "Normal speed")
+            }
+            return true
+        }
+        if (key == KeyEvent.KEYCODE_BUTTON_SELECT && event.action == KeyEvent.ACTION_UP) stopRewinding()
+        if (key == KeyEvent.KEYCODE_BUTTON_L1 && event.action == KeyEvent.ACTION_UP && rewinding) { stopRewinding(); return true }
         view.sendKeyEvent(event.action, key, port)
         return true
     }
