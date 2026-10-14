@@ -1,7 +1,11 @@
 package com.retrotv.app
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Environment
+import android.os.storage.StorageManager
 import java.io.File
 
 data class Game(val file: File, val system: GameSystem, val title: String)
@@ -16,18 +20,54 @@ object Library {
         "alarms", "notifications", "lost.dir", "system volume information", "\$recycle.bin",
     )
 
-    fun roots(ctx: Context): List<File> {
-        val roots = mutableListOf(gamesDir(ctx))
+    fun roots(ctx: Context): List<File> = candidates(ctx).filter { it.isDirectory && it.canRead() }.distinctBy { safeCanonical(it) }
+
+    /** Every place a USB stick or SD card might appear. TVs differ, so we ask Android several ways. */
+    fun candidates(ctx: Context): List<File> {
+        val out = mutableListOf(gamesDir(ctx))
+        try { out += Environment.getExternalStorageDirectory() } catch (_: Exception) { }
+        // 1. The storage volumes Android reports (USB drives, card readers, SD cards).
         try {
-            roots += Environment.getExternalStorageDirectory()
-        } catch (_: Exception) {
-        }
-        // USB drives and SD cards show up as /storage/XXXX-XXXX
+            val sm = ctx.getSystemService(StorageManager::class.java)
+            for (v in sm?.storageVolumes.orEmpty()) {
+                val dir: File? = if (Build.VERSION.SDK_INT >= 30) v.directory else try {
+                    v.javaClass.getMethod("getPathFile").invoke(v) as? File
+                } catch (_: Exception) { null }
+                if (dir != null) out += dir
+            }
+        } catch (_: Exception) { }
+        // 2. Each volume's app folder (always visible) tells us where that volume is mounted.
+        try {
+            ctx.getExternalFilesDirs(null).filterNotNull().forEach { f ->
+                val p = f.absolutePath
+                val i = p.indexOf("/Android/")
+                if (i > 0) out += File(p.substring(0, i))
+            }
+        } catch (_: Exception) { }
+        // 3. The usual mount points: /storage/XXXX-XXXX, plus a few TV-maker specials.
         File("/storage").listFiles()?.forEach { f ->
             val n = f.name.lowercase()
-            if (f.isDirectory && n != "emulated" && n != "self" && f.canRead()) roots += f
+            if (f.isDirectory && n != "emulated" && n != "self") out += f
         }
-        return roots.distinctBy { safeCanonical(it) }
+        listOf("/mnt/usb", "/mnt/usb_storage", "/storage/usb", "/mnt/media_rw", "/mnt/sdcard/usbStorage", "/mnt/extSdCard").forEach { p ->
+            val f = File(p)
+            if (f.isDirectory) { out += f; f.listFiles()?.filter { it.isDirectory }?.forEach { out += it } }
+        }
+        return out.distinctBy { safeCanonical(it) }
+    }
+
+    fun hasStoragePermission(ctx: Context) =
+        ctx.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+
+    data class DriveReport(val path: String, val readable: Boolean, val items: Int, val games: Int, val internal: Boolean)
+
+    /** What RetroTV can see on each drive - for the "Check USB drive" screen. */
+    fun diagnose(ctx: Context): List<DriveReport> = candidates(ctx).map { root ->
+        val readable = root.isDirectory && root.canRead()
+        val items = if (readable) root.listFiles()?.size ?: -1 else -1
+        val games = if (readable && items >= 0) LinkedHashMap<String, Game>().also { walk(root, 0, it) }.size else 0
+        val internal = safeCanonical(root).startsWith(safeCanonical(ctx.filesDir)) || root.absolutePath.contains("/emulated")
+        DriveReport(root.absolutePath, readable && items >= 0, items, games, internal)
     }
 
     fun scan(ctx: Context): List<Game> {

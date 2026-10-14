@@ -45,6 +45,13 @@
             android:theme="@style/Theme.RetroTV.Overlay"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|uiMode|smallestScreenSize" />
         <activity
+            android:name=".CheatsActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.RetroTV.Overlay"
+            android:windowSoftInputMode="adjustPan"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|uiMode|smallestScreenSize" />
+        <activity
             android:name=".LibraryActivity"
             android:exported="false"
             android:screenOrientation="landscape"

@@ -191,6 +191,7 @@ class GameActivity : AppCompatActivity() {
                     if (loading.visibility == View.VISIBLE) {
                         loading.visibility = View.GONE
                         showHint()
+                        applyCheats()
                     }
                 }
             }
@@ -297,6 +298,10 @@ class GameActivity : AppCompatActivity() {
                 toast(if (ok) "State loaded" else "Couldn't load state")
             }
             MenuActivity.RESET -> view.reset()
+            MenuActivity.FAST -> {
+                view.frameSpeed = if (view.frameSpeed > 1) 1 else 3
+                toast(if (view.frameSpeed > 1) "Fast forward on (3x) - pause menu to turn it off" else "Normal speed")
+            }
             MenuActivity.QUIT -> {
                 saveSram()
                 finish()
@@ -306,9 +311,34 @@ class GameActivity : AppCompatActivity() {
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
+    private var cheatsApplied = ""
+
+    /** Sends the switched-on cheats to the emulator (after clearing the old ones). */
+    private fun applyCheats() {
+        val view = retroView ?: return
+        lifecycleScope.launch {
+            val game = Game(gameFile, system, gameTitle)
+            val codes = withContext(Dispatchers.IO) {
+                val st = Cheats.state(this@GameActivity, game)
+                if (st.enabled.isEmpty()) emptyList() else Cheats.activeCodes(this@GameActivity, game, try { Cheats.findInDb(this@GameActivity, game) } catch (_: Exception) { emptyList() })
+            }
+            val key = codes.joinToString("|")
+            if (key == cheatsApplied) return@launch
+            cheatsApplied = key
+            try {
+                view.queueEvent { try { com.swordfish.libretrodroid.LibretroDroid.resetCheat() } catch (_: Throwable) { } }
+                codes.forEachIndexed { i, code -> view.setCheat(i, true, code) }
+                if (codes.isNotEmpty()) toast("${codes.size} cheat" + (if (codes.size == 1) "" else "s") + " on")
+            } catch (_: Throwable) {
+                toast("This console's emulator doesn't accept those cheats")
+            }
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         hideSystemUi()
+        if (retroView != null && loading.visibility != View.VISIBLE) applyCheats()
         val action = pendingAction ?: return
         pendingAction = null
         lifecycleScope.launch {
@@ -330,7 +360,10 @@ class GameActivity : AppCompatActivity() {
             menu.launch(Intent(this@GameActivity, MenuActivity::class.java)
                 .putExtra(MenuActivity.EXTRA_TITLE, gameTitle)
                 .putExtra(MenuActivity.EXTRA_HAS_STATE, stateFile.exists())
-                .putExtra(MenuActivity.EXTRA_PLAYERS, ports.size))
+                .putExtra(MenuActivity.EXTRA_PLAYERS, ports.size)
+                .putExtra(MenuActivity.EXTRA_PATH, gameFile.absolutePath)
+                .putExtra(MenuActivity.EXTRA_SYSTEM, system.id)
+                .putExtra(MenuActivity.EXTRA_SPEED, retroView?.frameSpeed ?: 1))
         }
     }
 

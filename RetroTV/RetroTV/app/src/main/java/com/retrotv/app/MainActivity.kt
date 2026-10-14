@@ -1,7 +1,10 @@
 package com.retrotv.app
 
 import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Outline
@@ -117,6 +120,19 @@ class MainActivity : RetroActivity(), InputManager.InputDeviceListener {
             }
         }
         (getSystemService(INPUT_SERVICE) as InputManager).registerInputDeviceListener(this, null)
+        // Plugging in (or pulling out) a USB drive or card reader refreshes the library by itself.
+        registerReceiver(mediaReceiver, IntentFilter().apply {
+            addAction(Intent.ACTION_MEDIA_MOUNTED); addAction(Intent.ACTION_MEDIA_REMOVED)
+            addAction(Intent.ACTION_MEDIA_UNMOUNTED); addAction(Intent.ACTION_MEDIA_EJECT)
+            addDataScheme("file")
+        })
+    }
+
+    private val mediaReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_MEDIA_MOUNTED) Toast.makeText(context, "Drive connected - looking for games...", Toast.LENGTH_SHORT).show()
+            rescanSoon()
+        }
     }
 
     private var resumedBefore = false
@@ -133,6 +149,7 @@ class MainActivity : RetroActivity(), InputManager.InputDeviceListener {
         super.onStop()
         (getSystemService(INPUT_SERVICE) as InputManager).unregisterInputDeviceListener(this)
         UploadHub.onUploaded = null
+        try { unregisterReceiver(mediaReceiver) } catch (_: Exception) { }
     }
 
     // ===================================================================== layout

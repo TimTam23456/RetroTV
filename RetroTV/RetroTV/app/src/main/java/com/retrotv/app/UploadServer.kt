@@ -32,6 +32,8 @@ class UploadServer(
             session.method == Method.GET && session.uri == "/library/$SERVER_FILE" -> gameServerFile(session)
             session.method == Method.POST && session.uri == "/library/add" -> libraryAdd(session)
             session.method == Method.POST && session.uri == "/library/remove" -> libraryRemove(session)
+            session.method == Method.GET && session.uri == "/storage" ->
+                newFixedLengthResponse(Response.Status.OK, "text/plain; charset=utf-8", storageReport())
             session.method == Method.GET && session.uri == "/log" ->
                 newFixedLengthResponse(Response.Status.OK, "text/plain; charset=utf-8", StreamLog.forWeb(ctx))
             session.method == Method.POST && session.uri == "/upload" -> upload(session)
@@ -81,6 +83,17 @@ class UploadServer(
         if (!part.renameTo(dest)) return bad("Couldn't save file")
         onUploaded(name)
         return newFixedLengthResponse(Response.Status.OK, MIME_PLAINTEXT, "ok")
+    }
+
+    /** Plain-text drive report, so a phone can check what the TV sees on a USB stick. */
+    private fun storageReport(): String {
+        val sb = StringBuilder("RetroTV storage check\n\n")
+        sb.append("Permission to read drives: ").append(if (Library.hasStoragePermission(ctx)) "yes" else "NO - open RetroTV Settings > Check USB drive > Allow access").append("\n\n")
+        for (r in Library.diagnose(ctx)) {
+            sb.append(if (r.internal) "[TV] " else "[DRIVE] ").append(r.path).append("  ")
+            sb.append(if (r.readable) "${r.games} games, ${r.items} items at top level" else "not readable").append("\n")
+        }
+        return sb.toString()
     }
 
     private fun bad(msg: String) = newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, msg)

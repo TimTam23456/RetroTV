@@ -1,6 +1,9 @@
 package com.retrotv.app
 
+import android.app.Activity
 import android.app.Application
+import android.os.Build
+import android.os.Bundle
 import android.content.Context
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -14,6 +17,20 @@ class App : Application() {
         super.onCreate()
         Sfx.init(this)
         Music.init(this)
+        // While a game or a PC stream is on screen, ask the TV for its low-latency game mode (ALLM).
+        // On Bravias this switches picture processing off automatically, which removes most of the lag.
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityCreated(a: Activity, b: Bundle?) {
+                val playing = a is GameActivity || a.javaClass.name == "com.limelight.Game"
+                if (playing && Build.VERSION.SDK_INT >= 30) a.window.setPreferMinimalPostProcessing(true)
+            }
+            override fun onActivityStarted(a: Activity) {}
+            override fun onActivityResumed(a: Activity) {}
+            override fun onActivityPaused(a: Activity) {}
+            override fun onActivityStopped(a: Activity) {}
+            override fun onActivitySaveInstanceState(a: Activity, b: Bundle) {}
+            override fun onActivityDestroyed(a: Activity) {}
+        })
         // Keep the upload page running while RetroTV is open on screen (any screen), stop it otherwise.
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) = UploadHub.start(this@App)

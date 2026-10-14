@@ -1,5 +1,6 @@
 package com.retrotv.app
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.graphics.Typeface
@@ -207,6 +208,17 @@ class SettingsActivity : RetroActivity() {
                     "3. Pick it from the list on the TV. Up to 4 controllers work at once.")
         }
         row("In-game menu", "Press Select + Start together (View + Menu on Xbox), or Back on the remote.")
+        row("Controller feels laggy?", "Quick fixes for input delay") {
+            info("Cut controller lag",
+                "RetroTV now asks the TV for its game mode automatically. If it still feels slow:\n\n" +
+                    "1. TV picture mode: Settings > Display & Sound > Picture > Picture mode > Game. Also turn on " +
+                    "\"Auto low latency\" (or \"Auto Genre Picture Mode\") if your Bravia has it.\n\n" +
+                    "2. Wire the controller: an Xbox controller on a USB-C cable to the TV has no Bluetooth delay at all.\n\n" +
+                    "3. Keep Bluetooth clear: the TV on 5 GHz Wi-Fi (or Ethernet) stops Wi-Fi fighting the controller. " +
+                    "Remove other paired Bluetooth gadgets you don't use.\n\n" +
+                    "4. Update the controller: Xbox Accessories app on a PC or phone - newer firmware has lower Bluetooth latency.\n\n" +
+                    "5. Heavy consoles (N64, PSP, DS) can lag if the TV is struggling - the TV check shows which run full speed.")
+        }
         row("While streaming from your PC", "Hold View + Menu + LB + RB to stop. Hold Menu for mouse mode.")
     }
 
@@ -220,7 +232,8 @@ class SettingsActivity : RetroActivity() {
             }
         }
         row("Online library", "Browse and download games from web pages you add") { goToTab(1) }
-        row("Where RetroTV looks", "Games you send to the TV, the TV's Download folder, and any USB drive.")
+        row("Check USB drive or SD card", "See what RetroTV can find on each drive") { driveCheck() }
+        row("Where RetroTV looks", "Games you send to the TV, the TV's Download folder, and any USB drive or card reader.")
         section("Cover art")
         val on = prefs.getBoolean("cover_art", true)
         row("Download cover art", "Box art from the free libretro thumbnail library", if (on) "On" else "Off") {
@@ -231,6 +244,42 @@ class SettingsActivity : RetroActivity() {
         row("Refresh cover art", "Clear saved covers and look them up again") {
             Covers.clearCache(this)
             Toast.makeText(this, "Cover art will reload", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** Shows every drive RetroTV can see and how many games are on it, with fixes for common problems. */
+    private fun driveCheck() {
+        lifecycleScope.launch {
+            val perm = Library.hasStoragePermission(this@SettingsActivity)
+            val reports = withContext(Dispatchers.IO) { Library.diagnose(this@SettingsActivity) }
+            val external = reports.filter { !it.internal }
+            val sb = StringBuilder()
+            if (!perm) sb.append("RetroTV isn't allowed to read drives yet. Choose \"Allow access\" below, then allow it.\n\n")
+            if (external.isEmpty()) sb.append("No USB drive or card found.\n\n- Plug it straight into the TV (not a hub) and wait 10 seconds.\n- If the TV asks how to use it, choose \"Use as removable storage\" (not device storage).\n- Format it as exFAT or FAT32 on a PC. NTFS drives may not be readable.\n\n")
+            for (r in reports) {
+                val name = if (r.internal) "TV storage (${r.path})" else "Drive ${r.path}"
+                sb.append(name).append(": ").append(when {
+                    !r.readable -> "can't be read" + if (!r.internal) " - allow access, or check the TV can see it in Settings > Storage" else ""
+                    else -> "${r.games} game" + (if (r.games == 1) "" else "s") + " (${r.items} items at the top)"
+                }).append("\n")
+            }
+            if (external.any { it.readable && it.games == 0 }) sb.append("\nA drive was found but no games on it. Use folders named after consoles (snes, gba, psx...) and keep the files' real extensions (.sfc, .gba, .cue...). .7z and .rar don't work - extract them first.")
+            val d = AlertDialog.Builder(this@SettingsActivity)
+                .setTitle("USB drive check")
+                .setMessage(sb.toString().trim())
+                .setPositiveButton("Rescan") { _, _ -> lifecycleScope.launch { val n = withContext(Dispatchers.IO) { Library.scan(this@SettingsActivity).size }; Toast.makeText(this@SettingsActivity, "Found $n games", Toast.LENGTH_SHORT).show() } }
+                .setNegativeButton("Close", null)
+            if (!perm) d.setNeutralButton("Allow access") { _, _ ->
+                if (shouldShowRequestPermissionRationale(Manifest.permission.READ_EXTERNAL_STORAGE) || !prefs.getBoolean("asked_storage", false)) {
+                    prefs.edit().putBoolean("asked_storage", true).apply()
+                    requestPermissions(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), 7)
+                } else {
+                    // Android won't ask again after "Don't allow": open RetroTV's page in TV settings instead.
+                    try { startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$packageName"))) } catch (_: Exception) { }
+                    Toast.makeText(this@SettingsActivity, "Permissions > Files and media (or Storage) > Allow", Toast.LENGTH_LONG).show()
+                }
+            }
+            d.show()
         }
     }
 
@@ -261,6 +310,17 @@ class SettingsActivity : RetroActivity() {
     private fun pc() {
         val pc = PcStore.get(this)
         section("Your PC")
+        row("Make streaming feel instant", "How to get PC games under 20 ms of delay") {
+            info("Low-lag PC streaming",
+                "Streaming on a home network is usually 10-30 ms behind - fine for PS2, GameCube and most games. To get the most out of it:\n\n" +
+                    "1. Plug the PC into the router with a cable. This makes the biggest difference.\n\n" +
+                    "2. TV: use a cable too, or 5 GHz Wi-Fi close to the router (not 2.4 GHz).\n\n" +
+                    "3. Keep 60 fps and 1080p (Stream quality). 4K adds delay on most TVs' decoders.\n\n" +
+                    "4. Bitrate around 20-30 Mbps. Higher isn't sharper enough to be worth the extra delay on Wi-Fi.\n\n" +
+                    "5. RetroTV switches the TV into its game mode while streaming - also set Picture mode to Game.\n\n" +
+                    "6. To see your real numbers: Stream quality > turn on the performance overlay.\n\n" +
+                    "No lag at all: plug the PC into the TV with an HDMI cable and play on the PC directly.")
+        }
         if (pc == null) {
             row("No PC linked", "Stream PS2, PS3, GameCube, Switch and more from your Windows PC.")
             row("Set up PC streaming", "One file on your PC - the TV links itself") {

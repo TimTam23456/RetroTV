@@ -23,6 +23,10 @@ class MenuActivity : RetroActivity() {
         const val EXTRA_HAS_STATE = "has_state"
         const val EXTRA_PLAYERS = "players"
         const val EXTRA_ACTION = "action"
+        const val EXTRA_PATH = "path"
+        const val EXTRA_SYSTEM = "system"
+        const val EXTRA_SPEED = "speed"
+        const val FAST = "fast"
         const val SAVE = "save"
         const val LOAD = "load"
         const val RESET = "reset"
@@ -65,6 +69,14 @@ class MenuActivity : RetroActivity() {
                 alpha = 0.4f
             }
         }
+        addButton(panel, "Cheats") {
+            startActivity(Intent(this, CheatsActivity::class.java)
+                .putExtra(CheatsActivity.EXTRA_PATH, intent.getStringExtra(EXTRA_PATH))
+                .putExtra(CheatsActivity.EXTRA_SYSTEM, intent.getStringExtra(EXTRA_SYSTEM))
+                .putExtra(CheatsActivity.EXTRA_TITLE, intent.getStringExtra(EXTRA_TITLE)))
+        }
+        val speed = intent.getIntExtra(EXTRA_SPEED, 1)
+        addButton(panel, if (speed > 1) "Fast forward: ${speed}x (press for normal)" else "Fast forward") { done(FAST) }
         addButton(panel, "Reset game") { done(RESET) }
         addButton(panel, "Quit to library") { done(QUIT) }
 

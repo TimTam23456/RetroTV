@@ -11,6 +11,9 @@ A controller-friendly retro game emulator for Android TV / Google TV.
 - Bluetooth controllers (Xbox, PlayStation, generic), up to 4 players
 - Send games to the TV from your phone or PC over Wi-Fi, or load them from a USB drive
 - Save states, in-game saves kept automatically, pause menu (Select + Start)
+- **Cheats** in the pause menu: thousands of codes from the free libretro cheat list, or type your own (Game Genie, Action Replay, GameShark)
+- **Fast forward** (3x) from the pause menu
+- Asks the TV for its low-latency game mode while you play, so the controller feels snappier
 - Emulator cores are downloaded the first time you play each console
 - **TV check**: works out how powerful your TV is and rates every console (great / playable / too slow)
 - **Live speed check**: if a game runs slow, you get a heads-up and the rating updates
@@ -98,7 +101,8 @@ pair button on top until the Xbox logo flashes quickly. RetroTV's home screen sh
 
 - **Wi-Fi:** RetroTV's home screen shows an address like `http://192.168.1.20:8080`. Open it in a
   browser on your phone or PC (same Wi-Fi), pick the console, choose files, Send.
-- **USB drive:** plug it in and press Rescan. Folders named after consoles (`psx`, `snes`, `n64`...) help.
+- **USB drive or card reader:** plug it in and the library refreshes by itself. Folders named after consoles (`psx`, `snes`, `n64`...) help.
+  Not showing up? Settings > Check USB drive shows what RetroTV can see (or open `http://<TV address>/storage` on your phone).
 - Disc games: keep `.cue` and `.bin` files together, or convert to a single `.chd`. Don't zip them.
 
 Use games you own. RetroTV doesn't come with any.
